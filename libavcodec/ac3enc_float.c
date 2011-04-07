@@ -93,8 +93,11 @@ static int normalize_samples(AC3EncodeContext *s)
  */
 static void scale_coefficients(AC3EncodeContext *s)
 {
-    s->ac3dsp.float_to_fixed24(s->fixed_coef_buffer, s->mdct_coef_buffer,
-                               AC3_MAX_COEFS * AC3_MAX_BLOCKS * s->channels);
+    int start = s->cpl_enabled ? 0 : AC3_MAX_COEFS * AC3_MAX_BLOCKS;
+    s->ac3dsp.float_to_fixed24(s->fixed_coef_buffer + start,
+                               s->mdct_coef_buffer  + start,
+                               AC3_MAX_COEFS * AC3_MAX_BLOCKS *
+                               (s->channels + s->cpl_enabled));
 }
 
 
