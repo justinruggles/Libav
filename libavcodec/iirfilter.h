@@ -77,6 +77,16 @@ struct FFIIRFilterCoeffs* ff_iir_filter_init_coeffs(void *avc,
 struct FFIIRFilterState* ff_iir_filter_init_state(int order);
 
 /**
+ * Copy filter state.
+ *
+ * @param dst   destination state
+ * @param src   source state
+ * @param order filter order
+ */
+void ff_iir_filter_copy_state(struct FFIIRFilterState *dst,
+                              struct FFIIRFilterState *src, int order);
+
+/**
  * Free filter coefficients.
  *
  * @param coeffs pointer allocated with ff_iir_filter_init_coeffs()

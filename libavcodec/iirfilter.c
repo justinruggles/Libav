@@ -205,6 +205,12 @@ av_cold struct FFIIRFilterState* ff_iir_filter_init_state(int order)
     return s;
 }
 
+void ff_iir_filter_copy_state(struct FFIIRFilterState *dst,
+                              struct FFIIRFilterState *src, int order)
+{
+    memcpy(dst, src, sizeof(FFIIRFilterState) + sizeof(src->x[0]) * (order - 1));
+}
+
 #define CONV_S16(dest, source) dest = av_clip_int16(lrintf(source));
 
 #define CONV_FLT(dest, source) dest = source;

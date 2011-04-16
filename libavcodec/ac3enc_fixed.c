@@ -36,7 +36,7 @@
  */
 static av_cold void mdct_end(AC3MDCTContext *mdct)
 {
-    ff_fft_end(&mdct->fft);
+    ff_fft_end(&mdct->fft[0]);
 }
 
 
@@ -47,7 +47,7 @@ static av_cold void mdct_end(AC3MDCTContext *mdct)
 static av_cold int mdct_init(AVCodecContext *avctx, AC3MDCTContext *mdct,
                              int nbits)
 {
-    int ret = ff_mdct_init(&mdct->fft, nbits, 0, 1.0);
+    int ret = ff_mdct_init(&mdct->fft[0], nbits, 0, 1.0);
     mdct->window = ff_ac3_window;
     return ret;
 }
@@ -106,6 +106,27 @@ static void scale_coefficients(AC3EncodeContext *s)
                                        block->coeff_shift[ch]);
         }
     }
+}
+
+
+/* block switching is not done for the fixed-point encoder because we do
+   not currently have a fixed-point IIR filter */
+
+static void mdct256(AC3MDCTContext *mdct, int32_t *out, const int16_t *in)
+{
+    return;
+}
+static av_cold int block_switch_init(AVCodecContext *avctx, AC3EncodeContext *s)
+{
+    return 0;
+}
+static av_cold void block_switch_end(AC3EncodeContext *s)
+{
+    return;
+}
+static void block_switch_detection(AC3EncodeContext *s)
+{
+    return;
 }
 
 

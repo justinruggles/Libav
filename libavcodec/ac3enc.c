@@ -42,6 +42,7 @@
 #include "ac3.h"
 #include "audioconvert.h"
 #include "fft.h"
+#include "iirfilter.h"
 
 
 #ifndef CONFIG_AC3ENC_FLOAT
@@ -66,7 +67,8 @@ typedef int64_t CoefSumType;
 
 typedef struct AC3MDCTContext {
     const SampleType *window;           ///< MDCT window function
-    FFTContext fft;                     ///< FFT context for MDCT calculation
+    float *rot_tmp;                     ///< temp buffer for pre-rotated samples
+    FFTContext fft[2];                  ///< FFT context for MDCT calculation
 } AC3MDCTContext;
 
 /**
@@ -97,6 +99,7 @@ typedef struct AC3EncOptions {
 
     /* other encoding options */
     int allow_per_frame_metadata;
+    int block_switching;
     int stereo_rematrixing;
     int channel_coupling;
     int cpl_start;
@@ -117,6 +120,7 @@ typedef struct AC3Block {
     uint16_t **qmant;                           ///< quantized mantissas
     uint8_t  **cpl_coord_exp;                   ///< coupling coord exponents           (cplcoexp)
     uint8_t  **cpl_coord_mant;                  ///< coupling coord mantissas           (cplcomant)
+    uint8_t  blk_switch[AC3_MAX_CHANNELS][2];   ///< block switch flags [0]=current [1]=previous
     uint8_t  coeff_shift[AC3_MAX_CHANNELS];     ///< fixed-point coefficient shift values
     uint8_t  new_rematrixing_strategy;          ///< send new rematrixing flags in this block
     int      num_rematrixing_bands;             ///< number of rematrixing bands
@@ -180,6 +184,11 @@ typedef struct AC3EncodeContext {
     int start_freq[AC3_MAX_CHANNELS];       ///< start frequency bin                    (strtmant)
     int cpl_end_freq;                       ///< coupling channel end frequency bin
 
+    int blksw_enabled;                      ///< block switching enabled
+    struct FFIIRFilterCoeffs *blksw_coefs;  ///< block switch filter coefficients
+    struct FFIIRFilterState *blksw_state[2][AC3_MAX_CHANNELS]; /// block switch filter states
+    struct FFIIRFilterState *temp_state;    ///< block switch filter temp state
+
     int cpl_on;                             ///< coupling turned on for this frame
     int cpl_enabled;                        ///< coupling enabled for all frames
     int num_cpl_subbands;                   ///< number of coupling subbands            (ncplsubnd)
@@ -202,6 +211,7 @@ typedef struct AC3EncodeContext {
     int exponent_bits;                      ///< number of bits used for exponents
 
     SampleType **planar_samples;
+    SampleType *filtered_samples;
     uint8_t *bap_buffer;
     uint8_t *bap1_buffer;
     CoefType *mdct_coef_buffer;
@@ -286,6 +296,7 @@ static const AVOption options[] = {
     {"standard", "Standard (default)", 0, FF_OPT_TYPE_CONST, 0, INT_MIN, INT_MAX, AC3ENC_PARAM, "ad_conv_type"},
     {"hdcd",     "HDCD",               0, FF_OPT_TYPE_CONST, 1, INT_MIN, INT_MAX, AC3ENC_PARAM, "ad_conv_type"},
 /* Other Encoding Options */
+{"block_switching", "Block Switching", OFFSET(block_switching), FF_OPT_TYPE_INT, 1, 0, 1, AC3ENC_PARAM},
 {"stereo_rematrixing", "Stereo Rematrixing", OFFSET(stereo_rematrixing), FF_OPT_TYPE_INT, 1, 0, 1, AC3ENC_PARAM},
 {"channel_coupling",   "Channel Coupling",   OFFSET(channel_coupling),   FF_OPT_TYPE_INT, 1, 0, 1, AC3ENC_PARAM, "channel_coupling"},
     {"auto", "Selected by the Encoder", 0, FF_OPT_TYPE_CONST, -1, INT_MIN, INT_MAX, AC3ENC_PARAM, "channel_coupling"},
@@ -310,12 +321,20 @@ static av_cold void mdct_end(AC3MDCTContext *mdct);
 static av_cold int mdct_init(AVCodecContext *avctx, AC3MDCTContext *mdct,
                              int nbits);
 
+static void mdct256(AC3MDCTContext *mdct, CoefType *out, const SampleType *in);
+
 static void apply_window(DSPContext *dsp, SampleType *output, const SampleType *input,
                          const SampleType *window, unsigned int len);
 
 static int normalize_samples(AC3EncodeContext *s);
 
 static void scale_coefficients(AC3EncodeContext *s);
+
+static int block_switch_init(AVCodecContext *avctx, AC3EncodeContext *s);
+
+static void block_switch_end(AC3EncodeContext *s);
+
+static void block_switch_detection(AC3EncodeContext *s);
 
 
 /**
@@ -488,8 +507,13 @@ static void apply_mdct(AC3EncodeContext *s)
 
             block->coeff_shift[ch+1] = normalize_samples(s);
 
-            s->mdct.fft.mdct_calcw(&s->mdct.fft, block->mdct_coef[ch+1],
-                                   s->windowed_samples);
+            if (block->blk_switch[ch][0]) {
+                mdct256(&s->mdct, block->mdct_coef[ch+1], s->windowed_samples);
+            } else {
+                s->mdct.fft[0].mdct_calcw(&s->mdct.fft[0],
+                                          block->mdct_coef[ch+1],
+                                          s->windowed_samples);
+            }
         }
     }
 }
@@ -504,7 +528,8 @@ static void compute_coupling_strategy(AC3EncodeContext *s)
     for (blk = 0; blk < AC3_MAX_BLOCKS; blk++) {
         AC3Block *block = &s->blocks[blk];
         for (ch = 1; ch <= s->fbw_channels; ch++)
-            block->channel_in_cpl[ch] = s->cpl_on;
+            block->channel_in_cpl[ch] = s->cpl_on &&
+                !(block->blk_switch[ch-1][0] || block->blk_switch[ch-1][1]);
     }
 
     /* enable coupling for each block if at least 2 channels have coupling
@@ -560,6 +585,7 @@ static void apply_channel_coupling(AC3EncodeContext *s)
     DECLARE_ALIGNED(16, float,   cpl_coords)      [AC3_MAX_BLOCKS][AC3_MAX_CHANNELS][16];
     DECLARE_ALIGNED(16, int32_t, fixed_cpl_coords)[AC3_MAX_BLOCKS][AC3_MAX_CHANNELS][16];
     int blk, ch, bnd, i, j;
+    int av_uninit(last_coord_blk);
     float energy[AC3_MAX_BLOCKS][AC3_MAX_CHANNELS][16] = {{{0}}};
 
     /* calculate coupling channel from fbw channels */
@@ -604,19 +630,27 @@ static void apply_channel_coupling(AC3EncodeContext *s)
     }
 
     /* determine which blocks to send new coupling coordinates for */
-    /* TODO: a more advanced decision algorithm based on audio data can likely
-     *       be devised to give better results. */
+    /* TODO: a more advanced decision algorithm can likely be devides to give
+     *       better results. */
     for (blk = 0; blk < AC3_MAX_BLOCKS; blk++) {
         AC3Block *block = &s->blocks[blk];
         int new_coords = 0;
         if (block->cpl_in_use) {
-            if (blk == 0 || (s->fbw_channels == 2 && blk == 3)) {
+            if (blk == 0) {
                 new_coords = 1;
+                last_coord_blk = 0;
             } else {
                 for (ch = 1; ch <= s->fbw_channels; ch++) {
-                    if (block->channel_in_cpl[ch] && !s->blocks[blk-1].channel_in_cpl[ch])
+                    if (block->channel_in_cpl[ch] && !s->blocks[blk-1].channel_in_cpl[ch]) {
                         new_coords = 1;
+                        last_coord_blk = blk;
+                    }
                 }
+            }
+            /* for stereo, encode coordinates more often */
+            if (s->fbw_channels == 2 && blk > 2 && last_coord_blk < (blk-2)) {
+                new_coords = 1;
+                last_coord_blk = blk;
             }
         }
         s->blocks[blk].new_cpl_coords = new_coords;
@@ -882,6 +916,8 @@ static void compute_exp_strategy(AC3EncodeContext *s)
                 exp_strategy[blk] = EXP_NEW;
             else if (ch > CPL_CH && exp_diff > EXP_DIFF_THRESHOLD)
                 exp_strategy[blk] = EXP_NEW;
+            if (ch > CPL_CH && s->blocks[blk].blk_switch[ch-1][0] || s->blocks[blk].blk_switch[ch-1][1])
+                exp_strategy[blk] = EXP_NEW;
         }
 
         /* now select the encoding strategy type : if exponents are often
@@ -891,11 +927,15 @@ static void compute_exp_strategy(AC3EncodeContext *s)
             blk1 = blk + 1;
             while (blk1 < AC3_MAX_BLOCKS && exp_strategy[blk1] == EXP_REUSE)
                 blk1++;
+            if (ch > CPL_CH && s->blocks[blk].blk_switch[ch-1][0] || s->blocks[blk].blk_switch[ch-1][1]) {
+                exp_strategy[blk] = EXP_D45;
+            } else {
             switch (blk1 - blk) {
             case 1:  exp_strategy[blk] = EXP_D45; break;
             case 2:
             case 3:  exp_strategy[blk] = EXP_D25; break;
             default: exp_strategy[blk] = EXP_D15; break;
+            }
             }
             blk = blk1;
         }
@@ -1741,12 +1781,15 @@ static void output_audio_block(AC3EncodeContext *s, int blk)
     AC3Block *block = &s->blocks[blk];
 
     /* block switching */
-    for (ch = 1; ch <= s->fbw_channels; ch++)
-        put_bits(&s->pb, 1, 0);
+    for (ch = 0; ch < s->fbw_channels; ch++)
+        put_bits(&s->pb, 1, block->blk_switch[ch][0]);
 
     /* dither flags */
-    for (ch = 1; ch <= s->fbw_channels; ch++)
-        put_bits(&s->pb, 1, 1);
+    for (ch = 0; ch < s->fbw_channels; ch++) {
+        /* disable zero-bit dithering for each short block and the next block */
+        int dith_flag = !(block->blk_switch[ch][0] || block->blk_switch[ch][1]);
+        put_bits(&s->pb, 1, dith_flag);
+    }
 
     /* dynamic range codes */
     put_bits(&s->pb, 1, 0);
@@ -2271,6 +2314,9 @@ static int ac3_encode_frame(AVCodecContext *avctx, unsigned char *frame,
 
     deinterleave_input_samples(s, samples);
 
+    if (s->blksw_enabled)
+        block_switch_detection(s);
+
     apply_mdct(s);
 
     s->cpl_on = s->cpl_enabled;
@@ -2314,6 +2360,7 @@ static av_cold int ac3_encode_close(AVCodecContext *avctx)
     for (ch = 0; ch < s->channels; ch++)
         av_freep(&s->planar_samples[ch]);
     av_freep(&s->planar_samples);
+    av_freep(&s->filtered_samples);
     av_freep(&s->bap_buffer);
     av_freep(&s->bap1_buffer);
     av_freep(&s->mdct_coef_buffer);
@@ -2338,6 +2385,8 @@ static av_cold int ac3_encode_close(AVCodecContext *avctx)
     }
 
     mdct_end(&s->mdct);
+
+    block_switch_end(s);
 
     av_freep(&avctx->coded_frame);
     return 0;
@@ -2460,6 +2509,8 @@ static av_cold int validate_options(AVCodecContext *avctx, AC3EncodeContext *s)
     ret = validate_metadata(avctx);
     if (ret)
         return ret;
+
+    s->blksw_enabled = s->options.block_switching && CONFIG_AC3ENC_FLOAT;
 
     s->rematrixing_enabled = s->options.stereo_rematrixing &&
                              (s->channel_mode == AC3_CHMODE_STEREO);
@@ -2626,6 +2677,9 @@ static av_cold int allocate_buffers(AVCodecContext *avctx)
     }
 
     if (CONFIG_AC3ENC_FLOAT) {
+        FF_ALLOCZ_OR_GOTO(avctx, s->filtered_samples,
+                          (AC3_FRAME_SIZE+AC3_BLOCK_SIZE) *
+                          sizeof(*s->filtered_samples), alloc_fail);
         FF_ALLOC_OR_GOTO(avctx, s->fixed_coef_buffer, AC3_MAX_BLOCKS * channels *
                          AC3_MAX_COEFS * sizeof(*s->fixed_coef_buffer), alloc_fail);
         for (blk = 0; blk < AC3_MAX_BLOCKS; blk++) {
@@ -2685,6 +2739,10 @@ static av_cold int ac3_encode_init(AVCodecContext *avctx)
     }
 
     set_bandwidth(s);
+
+    ret = block_switch_init(avctx, s);
+    if (ret)
+        goto init_fail;
 
     exponent_init(s);
 
