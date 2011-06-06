@@ -33,7 +33,7 @@
 typedef struct FFIIRFilterCoeffs{
     int   order;
     float gain;
-    int   *cx;
+    float *cx;
     float *cy;
 }FFIIRFilterCoeffs;
 
@@ -149,8 +149,8 @@ static int biquad_init_coeffs(void *avc, struct FFIIRFilterCoeffs *c,
 
     // divide by gain to make the x coeffs integers.
     // during filtering, the delay state will include the gain multiplication
-    c->cx[0] = lrintf(x0 / c->gain);
-    c->cx[1] = lrintf(x1 / c->gain);
+    c->cx[0] = x0 / c->gain;
+    c->cx[1] = x1 / c->gain;
 
     return 0;
 }
