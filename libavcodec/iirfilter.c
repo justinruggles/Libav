@@ -104,7 +104,7 @@ static int butterworth_init_coeffs(void *avc, struct FFIIRFilterCoeffs *c,
     c->gain = p[order][0];
     for(i = 0; i < order; i++){
         c->gain += p[i][0];
-        c->cy[i] = (-p[i][0] * p[order][0] + -p[i][1] * p[order][1]) /
+        c->cy[i] = (p[    i][0] * p[order][0] + p[    i][1] * p[order][1]) /
                    (p[order][0] * p[order][0] + p[order][1] * p[order][1]);
     }
     c->gain /= 1 << order;
@@ -144,8 +144,8 @@ static int biquad_init_coeffs(void *avc, struct FFIIRFilterCoeffs *c,
         x0       =  ((1.0 - cos_w0) / 2.0)  / a0;
         x1       =   (1.0 - cos_w0)         / a0;
     }
-    c->cy[0] = (-1.0 + (sin_w0 / 2.0)) / a0;
-    c->cy[1] =  (2.0 *  cos_w0)        / a0;
+    c->cy[0] =  (1.0 - (sin_w0 / 2.0)) / a0;
+    c->cy[1] = -(2.0 *  cos_w0)        / a0;
 
     // divide by gain to make the x coeffs integers.
     // during filtering, the delay state will include the gain multiplication
@@ -209,8 +209,8 @@ av_cold struct FFIIRFilterState* ff_iir_filter_init_state(int order)
 
 #define FILTER_BW_O4_1(i0, i1, i2, i3, fmt)         \
     in = *src0 * c->gain                            \
-         + c->cy[0]*s->x[i0] + c->cy[1]*s->x[i1]    \
-         + c->cy[2]*s->x[i2] + c->cy[3]*s->x[i3];   \
+         - c->cy[0]*s->x[i0] - c->cy[1]*s->x[i1]    \
+         - c->cy[2]*s->x[i2] - c->cy[3]*s->x[i3];   \
     res =  (s->x[i0] + in      )*1                  \
          + (s->x[i1] + s->x[i3])*4                  \
          +  s->x[i2]            *6;                 \
@@ -241,7 +241,7 @@ av_cold struct FFIIRFilterState* ff_iir_filter_init_state(int order)
         float in, res;                                                      \
         in = *src0 * c->gain;                                               \
         for(j = 0; j < c->order; j++)                                       \
-            in += c->cy[j] * s->x[j];                                       \
+            in -= c->cy[j] * s->x[j];                                       \
         res = s->x[0] + in + s->x[c->order >> 1] * c->cx[c->order >> 1];    \
         for(j = 1; j < c->order >> 1; j++)                                  \
             res += (s->x[j] + s->x[c->order - j]) * c->cx[j];               \
@@ -259,8 +259,8 @@ av_cold struct FFIIRFilterState* ff_iir_filter_init_state(int order)
     const type *src0 = src;                                                 \
     type       *dst0 = dst;                                                 \
     for (i = 0; i < size; i++) {                                            \
-        float in = *src0   * c->gain  +                                     \
-                   s->x[0] * c->cy[0] +                                     \
+        float in = *src0   * c->gain  -                                     \
+                   s->x[0] * c->cy[0] -                                     \
                    s->x[1] * c->cy[1];                                      \
         CONV_##fmt(*dst0, s->x[0] + in + s->x[1] * c->cx[1])                \
         s->x[0] = s->x[1];                                                  \
