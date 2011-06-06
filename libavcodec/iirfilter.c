@@ -121,7 +121,7 @@ static int biquad_init_coeffs(void *avc, struct FFIIRFilterCoeffs *c,
                               enum IIRFilterMode filt_mode, int order,
                               float cutoff_ratio, float stopband)
 {
-    double cos_w0, sin_w0;
+    double cos_w0, alpha;
     double a0;
 
     if (filt_mode != FF_FILTER_MODE_HIGHPASS &&
@@ -136,9 +136,9 @@ static int biquad_init_coeffs(void *avc, struct FFIIRFilterCoeffs *c,
     }
 
     cos_w0 = cos(M_PI * cutoff_ratio);
-    sin_w0 = sin(M_PI * cutoff_ratio);
+    alpha  = sin(M_PI * cutoff_ratio) / 2.0;
 
-    a0 = 1.0 + (sin_w0 / 2.0);
+    a0 = 1.0 + alpha;
 
     if (filt_mode == FF_FILTER_MODE_HIGHPASS) {
         c->gain  =  ((1.0 + cos_w0) / 2.0)  / a0;
@@ -149,7 +149,7 @@ static int biquad_init_coeffs(void *avc, struct FFIIRFilterCoeffs *c,
         c->cx[0] =  ((1.0 - cos_w0) / 2.0)  / a0;
         c->cx[1] =   (1.0 - cos_w0)         / a0;
     }
-    c->cy[0] =  (1.0 - (sin_w0 / 2.0)) / a0;
+    c->cy[0] =  (1.0 - alpha) / a0;
     c->cy[1] = -(2.0 *  cos_w0)        / a0;
 
     return 0;
