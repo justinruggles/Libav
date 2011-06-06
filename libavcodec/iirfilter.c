@@ -124,12 +124,6 @@ static int biquad_init_coeffs(void *avc, struct FFIIRFilterCoeffs *c,
     double cos_w0, alpha;
     double a0;
 
-    if (filt_mode != FF_FILTER_MODE_HIGHPASS &&
-        filt_mode != FF_FILTER_MODE_LOWPASS) {
-        av_log(avc, AV_LOG_ERROR, "Biquad filter currently only supports "
-               "high-pass and low-pass filter modes\n");
-        return -1;
-    }
     if (order != 2) {
         av_log(avc, AV_LOG_ERROR, "Biquad filter must have order of 2\n");
         return -1;
@@ -138,19 +132,27 @@ static int biquad_init_coeffs(void *avc, struct FFIIRFilterCoeffs *c,
     cos_w0 = cos(M_PI * cutoff_ratio);
     alpha  = sin(M_PI * cutoff_ratio) / 2.0;
 
-    a0 = 1.0 + alpha;
-
-    if (filt_mode == FF_FILTER_MODE_HIGHPASS) {
-        c->gain  =  ((1.0 + cos_w0) / 2.0)  / a0;
-        c->cx[0] =  ((1.0 + cos_w0) / 2.0)  / a0;
-        c->cx[1] = (-(1.0 + cos_w0))        / a0;
-    } else { // FF_FILTER_MODE_LOWPASS
-        c->gain  =  ((1.0 - cos_w0) / 2.0)  / a0;
-        c->cx[0] =  ((1.0 - cos_w0) / 2.0)  / a0;
-        c->cx[1] =   (1.0 - cos_w0)         / a0;
+    switch (filt_mode) {
+    case FF_FILTER_MODE_HIGHPASS:
+        a0       =   1.0 + alpha;
+        c->gain  = ((1.0 + cos_w0) / 2.0) / a0;
+        c->cx[0] = ((1.0 + cos_w0) / 2.0) / a0;
+        c->cx[1] = -(1.0 + cos_w0)        / a0;
+        c->cy[0] =  (1.0 - alpha)         / a0;
+        c->cy[1] = -(2.0 * cos_w0)        / a0;
+        break;
+    case FF_FILTER_MODE_LOWPASS:
+        a0       = 1.0 + alpha;
+        c->gain  = ((1.0 - cos_w0) / 2.0) / a0;
+        c->cx[0] = ((1.0 - cos_w0) / 2.0) / a0;
+        c->cx[1] =  (1.0 - cos_w0)        / a0;
+        c->cy[0] =  (1.0 - alpha)         / a0;
+        c->cy[1] = -(2.0 * cos_w0)        / a0;
+        break;
+    default:
+        av_log(avc, AV_LOG_ERROR, "Unsupported mode for biquad filter\n");
+        return -1;
     }
-    c->cy[0] =  (1.0 - alpha) / a0;
-    c->cy[1] = -(2.0 *  cos_w0)        / a0;
 
     return 0;
 }
