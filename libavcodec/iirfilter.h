@@ -55,7 +55,7 @@ enum IIRFilterMode{
  * @param filt_type    filter type (e.g. Butterworth)
  * @param filt_mode    filter mode (e.g. lowpass)
  * @param order        filter order
- * @param cutoff_ratio cutoff to input frequency ratio
+ * @param cutoff_ratio cutoff to input frequency ratio (cutoff / (sample rate / 2))
  * @param stopband     stopband to input frequency ratio (used by bandpass and bandstop filter modes)
  * @param ripple       ripple factor (used only in Chebyshev filters)
  *

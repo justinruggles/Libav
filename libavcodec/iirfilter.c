@@ -45,7 +45,7 @@ typedef struct FFIIRFilterState{
 }FFIIRFilterState;
 
 /// maximum supported filter order
-#define MAXORDER 30
+#define BUTTERWORTH_MAX_ORDER 30
 
 static int butterworth_init_coeffs(void *avc, struct FFIIRFilterCoeffs *c,
                                    enum IIRFilterMode filt_mode,
@@ -54,16 +54,16 @@ static int butterworth_init_coeffs(void *avc, struct FFIIRFilterCoeffs *c,
 {
     int i, j;
     double wa;
-    double p[MAXORDER + 1][2];
+    double p[BUTTERWORTH_MAX_ORDER + 1][2];
 
     if (filt_mode != FF_FILTER_MODE_LOWPASS) {
         av_log(avc, AV_LOG_ERROR, "Butterworth filter currently only supports "
                "low-pass filter mode\n");
         return -1;
     }
-    if (order & 1) {
-        av_log(avc, AV_LOG_ERROR, "Butterworth filter currently only supports "
-               "even filter orders\n");
+    if (order <= 1 || order > BUTTERWORTH_MAX_ORDER || order & 1) {
+        av_log(avc, AV_LOG_ERROR, "Invalid order (%d). Butterworth filter "
+               "currently only supports even filter orders 2 to 30\n", order);
         return -1;
     }
 
@@ -166,8 +166,11 @@ av_cold struct FFIIRFilterCoeffs* ff_iir_filter_init_coeffs(void *avc,
     FFIIRFilterCoeffs *c;
     int ret = 0;
 
-    if (order <= 0 || order > MAXORDER || cutoff_ratio >= 1.0)
+    if (cutoff_ratio < 0.0f || cutoff_ratio >= 1.0f) {
+        av_log(avc, AV_LOG_WARNING, "Cutoff ratio (%0.3f) is out-of-range",
+               cutoff_ratio);
         return NULL;
+    }
 
     FF_ALLOCZ_OR_GOTO(avc, c,     sizeof(FFIIRFilterCoeffs),
                       init_fail);
