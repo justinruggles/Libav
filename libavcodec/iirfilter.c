@@ -239,9 +239,7 @@ av_cold struct FFIIRFilterState* ff_iir_filter_init_state(int order)
     const type *src0 = src;                                                 \
     type       *dst0 = dst;                                                 \
     for (i = 0; i < size; i++) {                                            \
-        float in = *src0 -                                                  \
-                   s->x[0] * c->cy[0] -                                     \
-                   s->x[1] * c->cy[1];                                      \
+        float in =        *src0        - s->x[0] * c->cy[0] - s->x[1] * c->cy[1]; \
         CONV_##fmt(*dst0, in * c->gain + s->x[0] * c->cx[0] + s->x[1] * c->cx[1]) \
         s->x[0] = s->x[1];                                                  \
         s->x[1] = in;                                                       \
