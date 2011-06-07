@@ -212,7 +212,7 @@ av_cold struct FFIIRFilterState* ff_iir_filter_init_state(int order)
 
 #define CONV_FLT(dest, source) dest = source;
 
-#define FILTER_DIRECT_FORM_II(type, fmt) {                                  \
+#define FILTER_DIRECT_FORM_II(type, fmt) do {                               \
     int i;                                                                  \
     const type *src0 = src;                                                 \
     type       *dst0 = dst;                                                 \
@@ -232,9 +232,9 @@ av_cold struct FFIIRFilterState* ff_iir_filter_init_state(int order)
         src0 += sstep;                                                      \
         dst0 += dstep;                                                      \
     }                                                                       \
-}
+} while (0);
 
-#define FILTER_O2(type, fmt) {                                              \
+#define FILTER_O2(type, fmt) do {                                           \
     int i;                                                                  \
     const type *src0 = src;                                                 \
     type       *dst0 = dst;                                                 \
@@ -246,16 +246,16 @@ av_cold struct FFIIRFilterState* ff_iir_filter_init_state(int order)
         src0 += sstep;                                                      \
         dst0 += dstep;                                                      \
     }                                                                       \
-}
+} while (0)
 
 void ff_iir_filter(const struct FFIIRFilterCoeffs *c,
                    struct FFIIRFilterState *s, int size,
                    const int16_t *src, int sstep, int16_t *dst, int dstep)
 {
     if (c->order == 2) {
-        FILTER_O2(int16_t, S16)
+        FILTER_O2(int16_t, S16);
     } else {
-        FILTER_DIRECT_FORM_II(int16_t, S16)
+        FILTER_DIRECT_FORM_II(int16_t, S16);
     }
 }
 
@@ -264,9 +264,9 @@ void ff_iir_filter_flt(const struct FFIIRFilterCoeffs *c,
                        const float *src, int sstep, float *dst, int dstep)
 {
     if (c->order == 2) {
-        FILTER_O2(float, FLT)
+        FILTER_O2(float, FLT);
     } else {
-        FILTER_DIRECT_FORM_II(float, FLT)
+        FILTER_DIRECT_FORM_II(float, FLT);
     }
 }
 
