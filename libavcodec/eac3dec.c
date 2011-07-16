@@ -53,14 +53,6 @@
 #include "ac3dec_data.h"
 #include "eac3_data.h"
 
-/** gain adaptive quantization mode */
-typedef enum {
-    EAC3_GAQ_NO =0,
-    EAC3_GAQ_12,
-    EAC3_GAQ_14,
-    EAC3_GAQ_124
-} EAC3GaqMode;
-
 #define EAC3_SR_CODE_REDUCED  3
 
 void ff_eac3_apply_spectral_extension(AC3DecodeContext *s)
@@ -271,7 +263,7 @@ void ff_eac3_decode_transform_coeffs_aht_ch(AC3DecodeContext *s, int ch)
                     if (mant >= 0)
                         b = 1 << (23 - log_gain);
                     else
-                        b = ff_eac3_gaq_remap_2_4_b[hebap-8][log_gain-1] << 8;
+                        b = -((ff_eac3_gaq_remap_2_4_b[hebap-8][log_gain-1] + 1) >> 1);
                     mant += ((ff_eac3_gaq_remap_2_4_a[hebap-8][log_gain-1] * (int64_t)mant) >> 15) + b;
                 } else {
                     /* small mantissa, no GAQ, or Gk=1 */

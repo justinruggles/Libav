@@ -28,9 +28,6 @@
 
 #include <stdint.h>
 
-#include "ac3enc.h"
-
-
 /* prototypes for static functions in ac3enc_fixed.c and ac3enc_float.c */
 
 static void scale_coefficients(AC3EncodeContext *s);
@@ -456,6 +453,9 @@ int AC3_NAME(encode_frame)(AVCodecContext *avctx, unsigned char *frame,
     ff_ac3_apply_rematrixing(s);
 
     ff_ac3_process_exponents(s);
+
+    if (CONFIG_EAC3_ENCODER && s->eac3 && s->aht_on)
+        ff_eac3_aht_processing(s);
 
     ret = ff_ac3_compute_bit_allocation(s);
     if (ret) {

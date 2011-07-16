@@ -27,11 +27,6 @@
 #include "eac3_data.h"
 #include "ac3.h"
 
-const uint8_t ff_eac3_bits_vs_hebap[20] = {
-    0,  2,  3,  4,  5,  7,  8,  9,  3,  4,
-    5,  6,  7,  8,  9, 10, 11, 12, 14, 16,
-};
-
 /**
  * Table E3.6, Gk=1
  * No gain (Gk=1) inverse quantization, remapping scale factors
@@ -60,19 +55,24 @@ const int16_t ff_eac3_gaq_remap_2_4_a[9][2] = {
 
 /**
  * Table E3.6, Gk=2 & Gk=4, B
- * Large mantissa inverse quantization, negative mantissa remapping offsets
+ * Large mantissa quantization, negative mantissa remapping offsets
  * ff_eac3_gaq_remap_3_4_b[hebap-8][Gk=2,4]
+ *
+ * Gk=2 offset = ((1 << (bits - 1)) - 3) / ((1 <<  bits)    - 2)
+ * Gk=4 offset = ((1 << bits) - 7)       / ((1 << (bits+2)) - 4)
+ * where bits = ff_eac3_bits_vs_hebap table[bap]
+ * converted to 25-bit fixed-point
  */
-const int16_t ff_eac3_gaq_remap_2_4_b[9][2] = {
-    {  -5461, -1170 },
-    { -11703, -4915 },
-    { -14199, -6606 },
-    { -15327, -7412 },
-    { -15864, -7805 },
-    { -16126, -7999 },
-    { -16255, -8096 },
-    { -16320, -8144 },
-    { -16352, -8168 }
+const int32_t ff_eac3_gaq_remap_2_4_b[9][2] = {
+    { 2796203,  599186 },
+    { 5991863, 2516582 },
+    { 7270127, 3382503 },
+    { 7847407, 3794846 },
+    { 8122303, 3996148 },
+    { 8256504, 4095614 },
+    { 8322815, 4145056 },
+    { 8355776, 4169704 },
+    { 8372208, 4182010 }
 };
 
 static const int16_t vq_hebap1[4][6] = {

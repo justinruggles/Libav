@@ -397,9 +397,12 @@ static void compute_exp_strategy(AC3EncodeContext *s)
             s->exp_strategy[ch][blk] = EXP_REUSE;
     }
 
-    /* for E-AC-3, determine frame exponent strategy */
-    if (CONFIG_EAC3_ENCODER && s->eac3)
+    /* for E-AC-3, determine frame exponent strategy and AHT strategy */
+    if (CONFIG_EAC3_ENCODER && s->eac3) {
         ff_eac3_get_frame_exp_strategy(s);
+        if (s->aht_enabled)
+            ff_eac3_compute_aht_strategy(s);
+    }
 }
 
 
@@ -802,6 +805,17 @@ static void count_frame_bits(AC3EncodeContext *s)
                     frame_bits += 2 * s->blocks[blk].cpl_in_use;
             }
         }
+        /* AHT info */
+        if (s->aht_on) {
+            for (ch = !s->cpl_on; ch <= s->channels; ch++) {
+                int write_aht = 1;
+                for (blk = 1; blk < AC3_MAX_BLOCKS; blk++)
+                    if (s->exp_strategy[ch][blk] != EXP_REUSE ||
+                        (ch == CPL_CH && s->blocks[blk].new_cpl_strategy))
+                        write_aht = 0;
+                frame_bits += write_aht;
+            }
+        }
     } else {
         if (opt->audio_production_info)
             frame_bits += 7;
@@ -983,22 +997,49 @@ static void count_mantissa_bits_update_ch(AC3EncodeContext *s, int ch,
 }
 
 
+static int eac3_aht_count_mantissa_bits(AC3EncodeContext *s)
+{
+    int ch, bit_count;
+    AC3Block *block = &s->blocks[0];
+
+    bit_count = 0;
+    for (ch = !s->cpl_on; ch <= s->channels; ch++) {
+        if (CONFIG_EAC3_ENCODER && s->aht_enabled && s->aht_on && s->channel_in_aht[ch]) {
+            bit_count += ff_eac3_aht_gaq_analysis_ch(s->pre_mantissa[ch],
+                                                     s->ref_bap[ch][0],
+                                                     &s->gaq_mode[ch],
+                                                     s->gaq_gain[ch],
+                                                     &s->large_mantissa[ch][0][0],
+                                                     s->start_freq[ch],
+                                                     block->end_freq[ch]);
+        }
+    }
+    return bit_count;
+}
+
+
 /**
  * Count the number of mantissa bits in the frame based on the bap values.
  */
 static int count_mantissa_bits(AC3EncodeContext *s)
 {
-    int ch, max_end_freq;
+    int ch, max_end_freq, aht_bits=0;
     LOCAL_ALIGNED_16(uint16_t, mant_cnt, [AC3_MAX_BLOCKS], [16]);
 
     count_mantissa_bits_init(mant_cnt);
 
-    max_end_freq = s->bandwidth_code * 3 + 73;
-    for (ch = !s->cpl_enabled; ch <= s->channels; ch++)
-        count_mantissa_bits_update_ch(s, ch, mant_cnt, s->start_freq[ch],
-                                      max_end_freq);
+    if (s->aht_enabled && s->aht_on)
+        aht_bits = eac3_aht_count_mantissa_bits(s);
 
-    return s->ac3dsp.compute_mantissa_size(mant_cnt);
+    max_end_freq = s->bandwidth_code * 3 + 73;
+    for (ch = !s->cpl_enabled; ch <= s->channels; ch++) {
+        if (!s->eac3 || !s->aht_enabled || !s->aht_on || !s->channel_in_aht[ch]) {
+            count_mantissa_bits_update_ch(s, ch, mant_cnt, s->start_freq[ch],
+                                          max_end_freq);
+        }
+    }
+
+    return s->ac3dsp.compute_mantissa_size(mant_cnt) + aht_bits;
 }
 
 
@@ -1025,10 +1066,13 @@ static int bit_alloc(AC3EncodeContext *s, int snr_offset)
                advantage of that by reusing the bit allocation pointers
                whenever we reuse exponents. */
             if (s->exp_strategy[ch][blk] != EXP_REUSE) {
+                const uint8_t *bap_tab = ff_ac3_bap_tab;
+                if (s->eac3 && s->aht_on && s->channel_in_aht[ch])
+                    bap_tab = ff_eac3_hebap_tab;
                 s->ac3dsp.bit_alloc_calc_bap(block->mask[ch], block->psd[ch],
                                              s->start_freq[ch], block->end_freq[ch],
                                              snr_offset, s->bit_alloc.floor,
-                                             ff_ac3_bap_tab, s->ref_bap[ch][blk]);
+                                             bap_tab, s->ref_bap[ch][blk]);
             }
         }
     }
@@ -1076,6 +1120,8 @@ static int cbr_bit_allocation(AC3EncodeContext *s)
     }
     FFSWAP(uint8_t *, s->bap_buffer, s->bap1_buffer);
     reset_block_bap(s);
+    if (s->eac3 && s->aht_enabled && s->aht_on)
+        eac3_aht_count_mantissa_bits(s);
 
     s->coarse_snr_offset = snr_offset >> 4;
     for (ch = !s->cpl_on; ch <= s->channels; ch++)
@@ -1241,10 +1287,24 @@ void ff_ac3_quantize_mantissas(AC3EncodeContext *s)
                 ch      = CPL_CH;
                 got_cpl = 1;
             }
+            if (s->eac3 && s->aht_on && s->channel_in_aht[ch]) {
+                if (!blk) {
+                    ff_eac3_aht_quantize_mantissas_ch(s->pre_mantissa[ch],
+                                                      s->ref_bap[ch][blk],
+                                                      block->qmant[ch],
+                                                      s->gaq_mode[ch],
+                                                      s->gaq_gain[ch],
+                                                      &s->large_mantissa[ch][0][0],
+                                                      s->encoded_gaq_gain[ch],
+                                                      s->start_freq[ch],
+                                                      block->end_freq[ch]);
+                }
+            } else {
             quantize_mantissas_blk_ch(&m, block->fixed_coef[ch],
                                       s->blocks[s->exp_ref_block[ch][blk]].exp[ch],
                                       s->ref_bap[ch][blk], block->qmant[ch],
                                       s->start_freq[ch], block->end_freq[ch]);
+            }
             if (ch == CPL_CH)
                 ch = ch0;
         }
@@ -1481,6 +1541,51 @@ static void output_audio_block(AC3EncodeContext *s, int blk)
             ch      = CPL_CH;
             got_cpl = 1;
         }
+
+        if (s->aht_enabled && s->aht_on && s->channel_in_aht[ch]) {
+            if (!blk) {
+                int gaq_mode = s->gaq_mode[ch];
+                int end_bap  = gaq_mode < EAC3_GAQ_14 ? 12 : 17;
+                put_bits(&s->pb, 2, gaq_mode);
+                if (gaq_mode != EAC3_GAQ_NO) {
+                    for (i = s->start_freq[ch]; i < block->end_freq[ch]; i++) {
+                        b = s->ref_bap[ch][blk][i];
+                        if (b > 7 && b < end_bap) {
+                            if (gaq_mode == EAC3_GAQ_124) {
+                                if (s->encoded_gaq_gain[ch][i] != 128)
+                                    put_bits(&s->pb, 5, s->encoded_gaq_gain[ch][i]);
+                            } else {
+                                put_bits(&s->pb, 1, s->encoded_gaq_gain[ch][i]);
+                            }
+                        }
+                    }
+                }
+                for (i = s->start_freq[ch]; i < block->end_freq[ch]; i++) {
+                    int16_t *qm = block->qmant[ch] + i * AC3_MAX_BLOCKS;
+                    b = s->ref_bap[ch][blk][i];
+                    if (b) {
+                        int bits = ff_eac3_bits_vs_hebap[b];
+                        if (b <= 7) {
+                            put_bits(&s->pb, bits, qm[0]);
+                        } else {
+                            int blk1, gbits;
+                            int gain = 0;
+                            if (gaq_mode != EAC3_GAQ_NO || b < end_bap)
+                                gain = s->gaq_gain[ch][i];
+                            gbits = bits - gain;
+                            for (blk1 = 0; blk1 < AC3_MAX_BLOCKS; blk1++) {
+                                if (gain && s->large_mantissa[ch][i][blk1]) {
+                                    put_sbits(&s->pb, gbits, -(1 << (gbits-1)));
+                                    put_sbits(&s->pb, bits - (2 - gain), qm[blk1]);
+                                } else {
+                                    put_sbits(&s->pb, gbits, qm[blk1]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
         for (i = s->start_freq[ch]; i < block->end_freq[ch]; i++) {
             q = block->qmant[ch][i];
             b = s->ref_bap[ch][blk][i];
@@ -1495,6 +1600,8 @@ static void output_audio_block(AC3EncodeContext *s, int blk)
             default:              put_sbits(&s->pb, b-1, q); break;
             }
         }
+        }
+
         if (ch == CPL_CH)
             ch = ch0;
     }
@@ -1957,6 +2064,8 @@ av_cold int ff_ac3_encode_close(AVCodecContext *avctx)
     av_freep(&s->qmant_buffer);
     av_freep(&s->cpl_coord_exp_buffer);
     av_freep(&s->cpl_coord_mant_buffer);
+    av_freep(&s->pre_mantissa_buffer);
+    av_freep(&s->pre_mantissa);
     for (blk = 0; blk < s->num_blocks; blk++) {
         AC3Block *block = &s->blocks[blk];
         av_freep(&block->mdct_coef);
@@ -2144,6 +2253,8 @@ static av_cold int validate_options(AC3EncodeContext *s)
     s->cpl_enabled = s->options.channel_coupling &&
                      s->channel_mode >= AC3_CHMODE_STEREO && !s->fixed_point;
 
+    s->aht_enabled = s->eac3 && s->num_blocks == 6;
+
     return 0;
 }
 
@@ -2284,7 +2395,6 @@ static av_cold int allocate_buffers(AC3EncodeContext *s)
             block->psd[ch]         = &s->psd_buffer        [AC3_MAX_COEFS * (blk * channels + ch)];
             block->band_psd[ch]    = &s->band_psd_buffer   [64            * (blk * channels + ch)];
             block->mask[ch]        = &s->mask_buffer       [64            * (blk * channels + ch)];
-            block->qmant[ch]       = &s->qmant_buffer      [AC3_MAX_COEFS * (blk * channels + ch)];
             if (s->cpl_enabled) {
                 block->cpl_coord_exp[ch]  = &s->cpl_coord_exp_buffer [16  * (blk * channels + ch)];
                 block->cpl_coord_mant[ch] = &s->cpl_coord_mant_buffer[16  * (blk * channels + ch)];
@@ -2293,6 +2403,7 @@ static av_cold int allocate_buffers(AC3EncodeContext *s)
             /* arrangement: channel, block, coeff */
             block->exp[ch]         = &s->exp_buffer        [AC3_MAX_COEFS * (s->num_blocks * ch + blk)];
             block->mdct_coef[ch]   = &s->mdct_coef_buffer  [AC3_MAX_COEFS * (s->num_blocks * ch + blk)];
+            block->qmant[ch]       = &s->qmant_buffer      [AC3_MAX_COEFS * (s->num_blocks * ch + blk)];
         }
     }
 
@@ -2314,6 +2425,14 @@ static av_cold int allocate_buffers(AC3EncodeContext *s)
             for (ch = 0; ch < channels; ch++)
                 block->fixed_coef[ch] = (int32_t *)block->mdct_coef[ch];
         }
+    }
+    if (s->eac3) {
+        FF_ALLOCZ_OR_GOTO(avctx, s->pre_mantissa_buffer, total_coefs *
+                          sizeof(*s->pre_mantissa_buffer), alloc_fail);
+        FF_ALLOCZ_OR_GOTO(avctx, s->pre_mantissa, channels *
+                          sizeof(*s->pre_mantissa), alloc_fail);
+        for (ch = 0; ch < channels; ch++)
+            s->pre_mantissa[ch] = &s->pre_mantissa_buffer[AC3_MAX_COEFS * AC3_MAX_BLOCKS * ch];
     }
 
     return 0;
@@ -2390,6 +2509,7 @@ av_cold int ff_ac3_encode_init(AVCodecContext *avctx)
 
     dsputil_init(&s->dsp, avctx);
     ff_ac3dsp_init(&s->ac3dsp, avctx->flags & CODEC_FLAG_BITEXACT);
+    ff_fmt_convert_init(&s->fmt_conv, avctx);
 
     dprint_options(s);
 

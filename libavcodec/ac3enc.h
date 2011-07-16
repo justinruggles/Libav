@@ -33,6 +33,7 @@
 #include "ac3dsp.h"
 #include "avcodec.h"
 #include "dsputil.h"
+#include "fmtconvert.h"
 #include "put_bits.h"
 #include "fft.h"
 
@@ -140,6 +141,7 @@ typedef struct AC3EncodeContext {
     PutBitContext pb;                       ///< bitstream writer context
     DSPContext dsp;
     AC3DSPContext ac3dsp;                   ///< AC-3 optimized functions
+    FmtConvertContext fmt_conv;
     FFTContext mdct;                        ///< FFT context for MDCT calculation
     const SampleType *mdct_window;          ///< MDCT window function array
 
@@ -191,6 +193,15 @@ typedef struct AC3EncodeContext {
 
     int rematrixing_enabled;                ///< stereo rematrixing enabled
 
+    int aht_enabled;                        ///< AHT enabled for all frames
+    int aht_on;                             ///< AHT turned on for this frame
+    int channel_in_aht[AC3_MAX_CHANNELS];
+    uint8_t gaq_mode[AC3_MAX_CHANNELS];
+    uint8_t gaq_gain[AC3_MAX_CHANNELS][AC3_MAX_COEFS];
+    uint8_t encoded_gaq_gain[AC3_MAX_CHANNELS][AC3_MAX_COEFS];
+    uint8_t large_mantissa[AC3_MAX_CHANNELS][AC3_MAX_COEFS][AC3_MAX_BLOCKS];
+    int32_t **pre_mantissa;
+
     /* bitrate allocation control */
     int slow_gain_code;                     ///< slow gain code                         (sgaincod)
     int slow_decay_code;                    ///< slow decay code                        (sdcycod)
@@ -211,6 +222,7 @@ typedef struct AC3EncodeContext {
     uint8_t *bap1_buffer;
     CoefType *mdct_coef_buffer;
     int32_t *fixed_coef_buffer;
+    int32_t *pre_mantissa_buffer;
     uint8_t *exp_buffer;
     uint8_t *grouped_exp_buffer;
     int16_t *psd_buffer;

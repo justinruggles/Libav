@@ -44,6 +44,8 @@ extern const int16_t  ff_ac3_window[AC3_WINDOW_SIZE/2];
 extern const uint8_t  ff_ac3_log_add_tab[260];
 extern const uint16_t ff_ac3_hearing_threshold_tab[AC3_CRITICAL_BANDS][3];
 extern const uint8_t  ff_ac3_bap_tab[64];
+extern const uint8_t  ff_eac3_hebap_tab[64];
+extern const uint8_t  ff_eac3_bits_vs_hebap[20];
 extern const uint8_t  ff_ac3_slow_decay_tab[4];
 extern const uint8_t  ff_ac3_fast_decay_tab[4];
 extern const uint16_t ff_ac3_slow_gain_tab[4];

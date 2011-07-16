@@ -39,12 +39,28 @@ void ff_eac3_exponent_init(void);
  */
 void ff_eac3_get_frame_exp_strategy(AC3EncodeContext *s);
 
+void ff_eac3_compute_aht_strategy(AC3EncodeContext *s);
+
 /**
  * Set coupling states.
  * This determines whether certain flags must be written to the bitstream or
  * whether they will be implicitly already known by the decoder.
  */
 void ff_eac3_set_cpl_states(AC3EncodeContext *s);
+
+void ff_eac3_aht_processing(AC3EncodeContext *s);
+
+int ff_eac3_aht_gaq_analysis_ch(const int32_t *mant, const uint8_t *bap,
+                                uint8_t *gaq_mode, uint8_t *gaq_gain,
+                                uint8_t *large_mantissa,
+                                int start_freq, int end_freq);
+
+void ff_eac3_aht_quantize_mantissas_ch(const int32_t *mant, const uint8_t *bap,
+                                       int16_t *qmant, uint8_t gaq_mode,
+                                       const uint8_t *gaq_gain,
+                                       const uint8_t *large_mantissa,
+                                       uint8_t *encoded_gaq_gain,
+                                       int start_freq, int end_freq);
 
 /**
  * Write the E-AC-3 frame header to the output bitstream.

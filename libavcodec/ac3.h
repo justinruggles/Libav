@@ -129,6 +129,14 @@ typedef enum {
     EAC3_FRAME_TYPE_RESERVED
 } EAC3FrameType;
 
+/** gain adaptive quantization mode */
+typedef enum {
+    EAC3_GAQ_NO =0,
+    EAC3_GAQ_12,
+    EAC3_GAQ_14,
+    EAC3_GAQ_124
+} EAC3GaqMode;
+
 void ff_ac3_common_init(void);
 
 /**
