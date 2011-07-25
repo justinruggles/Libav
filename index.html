@@ -25,9 +25,9 @@
     h3 { text-align: center; color: black; }
     a { color: #5A845A; }
     .description { font-size: 18pt; margin-bottom: 30px; margin-top: 30px; font-style: italic;}
-    pre { font-family: Consolas, monospace; font-size: 0.8em; background: #EFFFEE; color: black; padding: 15px; border: 1px black solid;}
+    .console { font-family: Consolas, monospace; font-size: 0.8em; background: black; color: white; padding: 15px; margin:10px; border: 0;}
     hr { border: 0; width: 80%; border-bottom: 1px solid #aaa}
-    .footer { text-align:center; padding-top:30px; font-style: italic; }
+    .footer { text-align:center; font-size: 0.75em; padding-top:30px; font-style: italic; }
   </style>
 </head>
 
@@ -40,9 +40,17 @@
     </div>
 
     <h2>Contact</h2>
-<p>Justin Ruggles (<a href="mailto:justin.ruggles@gmail.com">justin.ruggles@gmail.com</a>)
-<br/>      </p>
+<p>Justin Ruggles (<a href="mailto:justin.ruggles@gmail.com">justin.ruggles@gmail.com</a>)</p>
+<p>I am a <a href="http://www.libav.org/">Libav</a> developer who focuses mostly
+on audio codecs. I have done extensive work on the (E-)AC-3 encoders and
+decoders, and I wrote the FLAC encoder. I am currently working on improving the
+(E-)AC-3 encoder. The improvements were based initially on my previous work
+with the <a href="http://aften.sf.net">Aften</a> project, but at this point the
+Libav encoder is more advanced.</p>
 
+<p>Visit my blog,
+<a href="http://ambient-language.blogspot.com/">Ambient Language</a>,
+for details on some of the things I've been working on.</p>
 
     <h2>Branches</h2>
     <p>
@@ -89,14 +97,22 @@
     <h2>Clone</h2>
     <p>You can clone the project with <a href="http://git-scm.com">Git</a>
       by running:
-      <pre>$ git clone git://github.com/justinruggles/Libav</pre>
+     <div class="console">
+     <span style="color:#FFF24D">$</span> git clone git://github.com/justinruggles/Libav
+     </div>
       Or add as a remote to your existing local Libav git repository:
-<pre>
-$ git remote add ruggles git://github.com/justinruggles/Libav
-$ git fetch ruggles
-</pre>
+    <div class="console">
+    <span style="color:#FFF24D">$</span> git remote add ruggles git://github.com/justinruggles/Libav<br>
+    <span style="color:#FFF24D">$</span> git fetch ruggles
+    </div>
     </p>
     </div>
+
+<div class="footer">
+<hr>
+Copyright &copy; 2011 Justin Ruggles<br>
+<a rel="license" href="http://creativecommons.org/licenses/by-sa/3.0/"><img alt="Creative Commons License" style="border-width:0" src="http://i.creativecommons.org/l/by-sa/3.0/80x15.png"></a>
+</div>
 
   </div>
 
