@@ -51,6 +51,7 @@
 #include "ac3_parser.h"
 #include "ac3dec.h"
 #include "ac3dec_data.h"
+#include "eac3.h"
 #include "eac3_data.h"
 
 /** gain adaptive quantization mode */
@@ -66,31 +67,15 @@ typedef enum {
 void ff_eac3_apply_spectral_extension(AC3DecodeContext *s)
 {
     int bin, bnd, ch, i;
-    uint8_t wrapflag[SPX_MAX_BANDS]={1,0,}, num_copy_sections, copy_sizes[SPX_MAX_BANDS];
-    float rms_energy[SPX_MAX_BANDS];
+    uint8_t wrapflag[AC3_MAX_SPX_BANDS];
+    int num_copy_sections, copy_sizes[AC3_MAX_SPX_BANDS];
+    float rms_energy[AC3_MAX_SPX_BANDS];
 
     /* Set copy index mapping table. Set wrap flags to apply a notch filter at
        wrap points later on. */
-    bin = s->spx_dst_start_freq;
-    num_copy_sections = 0;
-    for (bnd = 0; bnd < s->num_spx_bands; bnd++) {
-        int copysize;
-        int bandsize = s->spx_band_sizes[bnd];
-        if (bin + bandsize > s->spx_src_start_freq) {
-            copy_sizes[num_copy_sections++] = bin - s->spx_dst_start_freq;
-            bin = s->spx_dst_start_freq;
-            wrapflag[bnd] = 1;
-        }
-        for (i = 0; i < bandsize; i += copysize) {
-            if (bin == s->spx_src_start_freq) {
-                copy_sizes[num_copy_sections++] = bin - s->spx_dst_start_freq;
-                bin = s->spx_dst_start_freq;
-            }
-            copysize = FFMIN(bandsize - i, s->spx_src_start_freq - bin);
-            bin += copysize;
-        }
-    }
-    copy_sizes[num_copy_sections++] = bin - s->spx_dst_start_freq;
+    ff_eac3_spx_get_copy_params(s->spx_dst_start_freq, s->spx_src_start_freq,
+                                s->num_spx_bands, s->spx_band_sizes,
+                                &num_copy_sections, copy_sizes, wrapflag);
 
     for (ch = 1; ch <= s->fbw_channels; ch++) {
         if (!s->channel_uses_spx[ch])
@@ -140,7 +125,7 @@ void ff_eac3_apply_spectral_extension(AC3DecodeContext *s)
            each band. */
         bin = s->spx_src_start_freq;
         for (bnd = 0; bnd < s->num_spx_bands; bnd++) {
-            float nscale = s->spx_noise_blend[ch][bnd] * rms_energy[bnd] * (1.0f/(1<<31));
+            float nscale = s->spx_noise_blend[ch][bnd] * rms_energy[bnd] * (1.0f/(1LL<<31));
             float sscale = s->spx_signal_blend[ch][bnd];
             for (i = 0; i < s->spx_band_sizes[bnd]; i++) {
                 float noise  = nscale * (int32_t)av_lfg_get(&s->dith_state);

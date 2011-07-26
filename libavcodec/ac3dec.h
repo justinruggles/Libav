@@ -60,8 +60,6 @@
 
 #define AC3_OUTPUT_LFEON  8
 
-#define SPX_MAX_BANDS    17
-
 typedef struct {
     AVClass        *class;                  ///< class for AVOptions
     AVCodecContext *avctx;                  ///< parent context
@@ -119,10 +117,10 @@ typedef struct {
     int spx_dst_start_freq;                     ///< spx starting frequency bin for copying (copystartmant)
                                                 ///< the copy region ends at the start of the spx region.
     int num_spx_bands;                          ///< number of spx bands                    (nspxbnds)
-    uint8_t spx_band_sizes[SPX_MAX_BANDS];      ///< number of bins in each spx band
+    uint8_t spx_band_sizes[AC3_MAX_SPX_BANDS];  ///< number of bins in each spx band
     uint8_t first_spx_coords[AC3_MAX_CHANNELS]; ///< first spx coordinates states           (firstspxcos)
-    float spx_noise_blend[AC3_MAX_CHANNELS][SPX_MAX_BANDS]; ///< spx noise blending factor  (nblendfact)
-    float spx_signal_blend[AC3_MAX_CHANNELS][SPX_MAX_BANDS];///< spx signal blending factor (sblendfact)
+    float spx_noise_blend[AC3_MAX_CHANNELS][AC3_MAX_SPX_BANDS]; ///< spx noise blending factor  (nblendfact)
+    float spx_signal_blend[AC3_MAX_CHANNELS][AC3_MAX_SPX_BANDS];///< spx signal blending factor (sblendfact)
 ///@}
 
 ///@name Adaptive hybrid transform

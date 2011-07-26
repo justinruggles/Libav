@@ -52,9 +52,3 @@ const uint8_t ff_eac3_hebap_tab[64] = {
     18, 18, 18, 18, 18, 19, 19, 19, 19, 19,
     19, 19, 19, 19,
 };
-
-/**
- * Table E2.15 Default Spectral Extension Banding Structure
- */
-const uint8_t ff_eac3_default_spx_band_struct[17] =
-{ 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1 };

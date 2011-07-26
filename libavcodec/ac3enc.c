@@ -242,15 +242,65 @@ void ff_ac3_compute_coupling_strategy(AC3EncodeContext *s)
     }
     if (!num_cpl_blocks)
         s->cpl_on = 0;
+}
 
-    /* set bandwidth for each channel */
+
+void ff_ac3_compute_spx_strategy(AC3EncodeContext *s)
+{
+    int blk, ch;
+    int num_spx_blocks;
+
+    /* set spx use flags for each block/channel */
+    /* TODO: turn spx on/off and adjust start band based on bit usage */
+    for (blk = 0; blk < s->num_blocks; blk++) {
+        AC3Block *block = &s->blocks[blk];
+        for (ch = 1; ch <= s->fbw_channels; ch++)
+            block->channel_in_spx[ch] = s->spx_on;
+    }
+
+    /* enable spx for each block if at least 1 channel has spx enabled for that
+       block */
+    num_spx_blocks = 0;
+    for (blk = 0; blk < s->num_blocks; blk++) {
+        AC3Block *block = &s->blocks[blk];
+        block->spx_in_use = 0;
+        for (ch = 1; ch <= s->fbw_channels; ch++)
+            block->spx_in_use |= block->channel_in_spx[ch];
+        num_spx_blocks += block->spx_in_use;
+
+        block->new_spx_strategy = !blk;
+#if 0
+        /* not needed yet because channel_in_spx is not set conditionally
+           for each block */
+        if (blk) {
+            for (ch = 1; ch <= s->fbw_channels; ch++) {
+                if (block->channel_in_spx[ch] != s->blocks[blk-1].channel_in_spx[ch]) {
+                    block->new_spx_strategy = 1;
+                    break;
+                }
+            }
+        }
+#endif
+    }
+    if (!num_spx_blocks)
+        s->spx_on = 0;
+}
+
+
+void ff_ac3_update_bandwidth(AC3EncodeContext *s)
+{
+    int blk, ch;
+
     for (blk = 0; blk < s->num_blocks; blk++) {
         AC3Block *block = &s->blocks[blk];
         for (ch = 1; ch <= s->fbw_channels; ch++) {
-            if (block->channel_in_cpl[ch])
+            if (s->cpl_on && block->channel_in_cpl[ch]) {
                 block->end_freq[ch] = s->start_freq[CPL_CH];
-            else
+            } else if (s->spx_on && block->channel_in_spx[ch]) {
+                block->end_freq[ch] = s->spx_start_freq;
+            } else {
                 block->end_freq[ch] = s->bandwidth_code * 3 + 73;
+            }
         }
     }
 }
@@ -802,6 +852,14 @@ static void count_frame_bits(AC3EncodeContext *s)
                     frame_bits += 2 * s->blocks[blk].cpl_in_use;
             }
         }
+        /* spx attenuation info */
+        if (s->spx_on) {
+            for (ch = 1; ch <= s->fbw_channels; ch++) {
+                frame_bits++;
+                if (s->spx_atten_code[ch] >= 0)
+                    frame_bits += 5;
+            }
+        }
     } else {
         if (opt->audio_production_info)
             frame_bits += 7;
@@ -816,6 +874,36 @@ static void count_frame_bits(AC3EncodeContext *s)
     /* audio blocks */
     for (blk = 0; blk < s->num_blocks; blk++) {
         AC3Block *block = &s->blocks[blk];
+
+        /* spectral extension strategy */
+        if (s->eac3) {
+            if (blk > 0)
+                frame_bits++;
+            if (block->new_spx_strategy) {
+                frame_bits++;
+                if (block->spx_in_use) {
+                    if (s->channel_mode != AC3_CHMODE_MONO)
+                        frame_bits += s->fbw_channels;
+                    frame_bits += 2 + 3 + 3 + 1;
+                    if (!s->use_spx_default_struct)
+                        frame_bits += s->num_spx_subbands - 1;
+                }
+            }
+        }
+
+        /* spectral extension coordinates */
+        if (block->spx_in_use) {
+            for (ch = 1; ch <= s->fbw_channels; ch++) {
+                if (block->channel_in_spx[ch]) {
+                    if (block->new_spx_coords != 2)
+                        frame_bits++;
+                    if (block->new_spx_coords) {
+                        frame_bits += 5 + 2;
+                        frame_bits += (4 + 2) * s->num_spx_bands;
+                    }
+                }
+            }
+        }
 
         /* coupling strategy */
         if (!s->eac3)
@@ -1333,8 +1421,46 @@ static void output_audio_block(AC3EncodeContext *s, int blk)
     put_bits(&s->pb, 1, 0);
 
     /* spectral extension */
-    if (s->eac3)
-        put_bits(&s->pb, 1, 0);
+    if (s->eac3) {
+        if (blk > 0)
+            put_bits(&s->pb, 1, block->new_spx_strategy);
+        if (block->new_spx_strategy) {
+            put_bits(&s->pb, 1, block->spx_in_use);
+            if (block->spx_in_use) {
+                if (s->channel_mode != AC3_CHMODE_MONO) {
+                    for (ch = 1; ch <= s->fbw_channels; ch++)
+                        put_bits(&s->pb, 1, block->channel_in_spx[ch]);
+                }
+                put_bits(&s->pb, 2, s->spx_copy_start_code);
+                put_bits(&s->pb, 3, s->spx_start_code);
+                put_bits(&s->pb, 3, s->spx_end_code);
+                put_bits(&s->pb, 1, !s->use_spx_default_struct);
+                if (!s->use_spx_default_struct) {
+                    for (bnd = 0; bnd < s->num_spx_subbands-1; bnd++) {
+                        put_bits(&s->pb, 1, s->spx_band_struct[bnd]);
+                    }
+                }
+            }
+        }
+    }
+
+    /* spectral extension coordinates */
+    if (block->spx_in_use) {
+        for (ch = 1; ch <= s->fbw_channels; ch++) {
+            if (block->channel_in_spx[ch]) {
+                if (block->new_spx_coords != 2)
+                    put_bits(&s->pb, 1, block->new_spx_coords);
+                if (block->new_spx_coords) {
+                    put_bits(&s->pb, 5, block->spx_blend[ch]);
+                    put_bits(&s->pb, 2, block->spx_master_exp[ch]);
+                    for (bnd = 0; bnd < s->num_spx_bands; bnd++) {
+                        put_bits(&s->pb, 4, block->spx_coord_exp [ch][bnd]);
+                        put_bits(&s->pb, 2, block->spx_coord_mant[ch][bnd]);
+                    }
+                }
+            }
+        }
+    }
 
     /* channel coupling */
     if (!s->eac3)
@@ -1355,7 +1481,8 @@ static void output_audio_block(AC3EncodeContext *s, int blk)
             start_sub = (s->start_freq[CPL_CH] - 37) / 12;
             end_sub   = (s->cpl_end_freq       - 37) / 12;
             put_bits(&s->pb, 4, start_sub);
-            put_bits(&s->pb, 4, end_sub - 3);
+            if (!block->spx_in_use)
+                put_bits(&s->pb, 4, end_sub - 3);
             /* coupling band structure */
             if (s->eac3) {
                 put_bits(&s->pb, 1, 0); /* use default */
@@ -1404,7 +1531,8 @@ static void output_audio_block(AC3EncodeContext *s, int blk)
 
     /* bandwidth */
     for (ch = 1; ch <= s->fbw_channels; ch++) {
-        if (s->exp_strategy[ch][blk] != EXP_REUSE && !block->channel_in_cpl[ch])
+        if (s->exp_strategy[ch][blk] != EXP_REUSE && !block->channel_in_cpl[ch] &&
+            !block->channel_in_spx[ch])
             put_bits(&s->pb, 6, s->bandwidth_code);
     }
 
@@ -1957,6 +2085,9 @@ av_cold int ff_ac3_encode_close(AVCodecContext *avctx)
     av_freep(&s->qmant_buffer);
     av_freep(&s->cpl_coord_exp_buffer);
     av_freep(&s->cpl_coord_mant_buffer);
+    av_freep(&s->spx_coef_buffer);
+    av_freep(&s->spx_coord_exp_buffer);
+    av_freep(&s->spx_coord_mant_buffer);
     for (blk = 0; blk < s->num_blocks; blk++) {
         AC3Block *block = &s->blocks[blk];
         av_freep(&block->mdct_coef);
@@ -1969,6 +2100,9 @@ av_cold int ff_ac3_encode_close(AVCodecContext *avctx)
         av_freep(&block->qmant);
         av_freep(&block->cpl_coord_exp);
         av_freep(&block->cpl_coord_mant);
+        av_freep(&block->spx_coef);
+        av_freep(&block->spx_coord_exp);
+        av_freep(&block->spx_coord_mant);
     }
 
     s->mdct_end(s);
@@ -2141,6 +2275,8 @@ static av_cold int validate_options(AC3EncodeContext *s)
     s->rematrixing_enabled = s->options.stereo_rematrixing &&
                              (s->channel_mode == AC3_CHMODE_STEREO);
 
+    s->spx_enabled = s->eac3;
+
     s->cpl_enabled = s->options.channel_coupling &&
                      s->channel_mode >= AC3_CHMODE_STEREO && !s->fixed_point;
 
@@ -2181,6 +2317,11 @@ static av_cold void set_bandwidth(AC3EncodeContext *s)
             s->blocks[blk].end_freq[ch] = 7;
     }
 
+    /* initialize spectral extension strategy */
+    if (CONFIG_EAC3_ENCODER && s->spx_enabled) {
+        ff_eac3_spx_strategy_init(s);
+    }
+
     /* initialize coupling strategy */
     if (s->cpl_enabled) {
         if (s->options.cpl_start >= 0) {
@@ -2195,7 +2336,10 @@ static av_cold void set_bandwidth(AC3EncodeContext *s)
         int i, cpl_start_band, cpl_end_band;
         uint8_t *cpl_band_sizes = s->cpl_band_sizes;
 
-        cpl_end_band   = s->bandwidth_code / 4 + 3;
+        if (s->spx_enabled)
+            cpl_end_band = (s->spx_start_freq - 37) / 12;
+        else
+            cpl_end_band = s->bandwidth_code / 4 + 3;
         cpl_start_band = av_clip(cpl_start, 0, FFMIN(cpl_end_band-1, 15));
 
         s->num_cpl_subbands = cpl_end_band - cpl_start_band;
@@ -2255,6 +2399,14 @@ static av_cold int allocate_buffers(AC3EncodeContext *s)
         FF_ALLOC_OR_GOTO(avctx, s->cpl_coord_mant_buffer, channel_blocks * 16 *
                          sizeof(*s->cpl_coord_mant_buffer), alloc_fail);
     }
+    if (s->spx_enabled) {
+        FF_ALLOCZ_OR_GOTO(avctx, s->spx_coef_buffer, total_coefs *
+                        sizeof(*s->spx_coef_buffer), alloc_fail);
+        FF_ALLOC_OR_GOTO(avctx, s->spx_coord_exp_buffer, channel_blocks * 32 *
+                         sizeof(*s->spx_coord_exp_buffer), alloc_fail);
+        FF_ALLOC_OR_GOTO(avctx, s->spx_coord_mant_buffer, channel_blocks * 32 *
+                         sizeof(*s->spx_coord_mant_buffer), alloc_fail);
+    }
     for (blk = 0; blk < s->num_blocks; blk++) {
         AC3Block *block = &s->blocks[blk];
         FF_ALLOCZ_OR_GOTO(avctx, block->mdct_coef, channels * sizeof(*block->mdct_coef),
@@ -2277,6 +2429,14 @@ static av_cold int allocate_buffers(AC3EncodeContext *s)
             FF_ALLOCZ_OR_GOTO(avctx, block->cpl_coord_mant, channels * sizeof(*block->cpl_coord_mant),
                               alloc_fail);
         }
+        if (s->spx_enabled) {
+            FF_ALLOCZ_OR_GOTO(avctx, block->spx_coef, channels *
+                              sizeof(*block->spx_coef), alloc_fail);
+            FF_ALLOCZ_OR_GOTO(avctx, block->spx_coord_exp, channels * sizeof(*block->spx_coord_exp),
+                              alloc_fail);
+            FF_ALLOCZ_OR_GOTO(avctx, block->spx_coord_mant, channels * sizeof(*block->spx_coord_mant),
+                              alloc_fail);
+        }
 
         for (ch = 0; ch < channels; ch++) {
             /* arrangement: block, channel, coeff */
@@ -2289,10 +2449,17 @@ static av_cold int allocate_buffers(AC3EncodeContext *s)
                 block->cpl_coord_exp[ch]  = &s->cpl_coord_exp_buffer [16  * (blk * channels + ch)];
                 block->cpl_coord_mant[ch] = &s->cpl_coord_mant_buffer[16  * (blk * channels + ch)];
             }
+            if (s->spx_enabled) {
+                block->spx_coord_exp[ch]  = &s->spx_coord_exp_buffer [32  * (blk * channels + ch)];
+                block->spx_coord_mant[ch] = &s->spx_coord_mant_buffer[32  * (blk * channels + ch)];
+            }
 
             /* arrangement: channel, block, coeff */
             block->exp[ch]         = &s->exp_buffer        [AC3_MAX_COEFS * (s->num_blocks * ch + blk)];
             block->mdct_coef[ch]   = &s->mdct_coef_buffer  [AC3_MAX_COEFS * (s->num_blocks * ch + blk)];
+            if (s->spx_enabled) {
+                block->spx_coef[ch] = &s->spx_coef_buffer[AC3_MAX_COEFS * (s->num_blocks * ch + blk)];
+            }
         }
     }
 

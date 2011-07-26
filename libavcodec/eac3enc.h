@@ -40,11 +40,21 @@ void ff_eac3_exponent_init(void);
 void ff_eac3_get_frame_exp_strategy(AC3EncodeContext *s);
 
 /**
- * Set coupling states.
+ * Initialize spectral extension strategy parameters.
+ */
+void ff_eac3_spx_strategy_init(AC3EncodeContext *s);
+
+/**
+ * Calculate spectral extension coordinates and parameters.
+ */
+void ff_eac3_encode_spectral_extension(AC3EncodeContext *s);
+
+/**
+ * Set coupling & spectral extension states.
  * This determines whether certain flags must be written to the bitstream or
  * whether they will be implicitly already known by the decoder.
  */
-void ff_eac3_set_cpl_states(AC3EncodeContext *s);
+void ff_eac3_set_states(AC3EncodeContext *s);
 
 /**
  * Write the E-AC-3 frame header to the output bitstream.

@@ -1,6 +1,5 @@
 /*
- * AC-3 and E-AC-3 decoder tables
- * Copyright (c) 2007 Bartlomiej Wolowiec <bartek.wolowiec@gmail.com>
+ * Copyright (c) 2011 Justin Ruggles <justin.ruggles@gmail.com>
  *
  * This file is part of Libav.
  *
@@ -19,13 +18,22 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#ifndef AVCODEC_AC3DEC_DATA_H
-#define AVCODEC_AC3DEC_DATA_H
+/**
+ * @file
+ * E-AC-3 encoder/decoder common code.
+ */
+
+#ifndef AVCODEC_EAC3_H
+#define AVCODEC_EAC3_H
 
 #include <stdint.h>
 
-extern const uint8_t ff_ac3_ungroup_3_in_5_bits_tab[32][3];
+/**
+ * Initialize spectral extension strategy parameters.
+ */
+void ff_eac3_spx_get_copy_params(int copy_start, int spx_start,
+                                 int num_spx_bands, uint8_t *spx_band_sizes,
+                                 int *num_copy_sections, int *copy_sizes,
+                                 uint8_t *wrap_flags);
 
-extern const uint8_t ff_eac3_hebap_tab[64];
-
-#endif /* AVCODEC_AC3DEC_DATA_H */
+#endif /* AVCODEC_EAC3_H */

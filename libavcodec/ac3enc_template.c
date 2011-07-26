@@ -28,8 +28,6 @@
 
 #include <stdint.h>
 
-#include "ac3enc.h"
-
 
 /* prototypes for static functions in ac3enc_fixed.c and ac3enc_float.c */
 
@@ -343,9 +341,6 @@ static void apply_channel_coupling(AC3EncodeContext *s)
             }
         }
     }
-
-    if (CONFIG_EAC3_ENCODER && s->eac3)
-        ff_eac3_set_cpl_states(s);
 #endif /* CONFIG_AC3ENC_FLOAT */
 }
 
@@ -366,19 +361,21 @@ static void compute_rematrixing_strategy(AC3EncodeContext *s)
         block = &s->blocks[blk];
         block->new_rematrixing_strategy = !blk;
 
+        nb_coefs = FFMIN(block->end_freq[1], block->end_freq[2]);
+        block->num_rematrixing_bands = 4;
+        if (block->cpl_in_use) {
+            block->num_rematrixing_bands -= (nb_coefs <= 61);
+            block->num_rematrixing_bands -= (nb_coefs == 37);
+        } else if (block->spx_in_use) {
+            block->num_rematrixing_bands -= (nb_coefs <= 61);
+        }
+        if (blk && block->num_rematrixing_bands != block0->num_rematrixing_bands)
+            block->new_rematrixing_strategy = 1;
+
         if (!s->rematrixing_enabled) {
             block0 = block;
             continue;
         }
-
-        block->num_rematrixing_bands = 4;
-        if (block->cpl_in_use) {
-            block->num_rematrixing_bands -= (s->start_freq[CPL_CH] <= 61);
-            block->num_rematrixing_bands -= (s->start_freq[CPL_CH] == 37);
-            if (blk && block->num_rematrixing_bands != block0->num_rematrixing_bands)
-                block->new_rematrixing_strategy = 1;
-        }
-        nb_coefs = FFMIN(block->end_freq[1], block->end_freq[2]);
 
         for (bnd = 0; bnd < block->num_rematrixing_bands; bnd++) {
             /* calculate calculate sum of squared coeffs for one band in one block */
@@ -442,11 +439,22 @@ int AC3_NAME(encode_frame)(AVCodecContext *avctx, unsigned char *frame,
     clip_coefficients(&s->dsp, s->blocks[0].mdct_coef[1],
                       AC3_MAX_COEFS * s->num_blocks * s->channels);
 
+    s->spx_on = s->spx_enabled;
+    ff_ac3_compute_spx_strategy(s);
+
     s->cpl_on = s->cpl_enabled;
     ff_ac3_compute_coupling_strategy(s);
 
+    ff_ac3_update_bandwidth(s);
+
+    if (CONFIG_EAC3_ENCODER && s->spx_on)
+        ff_eac3_encode_spectral_extension(s);
+
     if (s->cpl_on)
         apply_channel_coupling(s);
+
+    if (CONFIG_EAC3_ENCODER && s->eac3 && (s->cpl_on || s->spx_on))
+        ff_eac3_set_states(s);
 
     compute_rematrixing_strategy(s);
 

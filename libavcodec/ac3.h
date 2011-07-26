@@ -38,6 +38,7 @@
 #define AC3_WINDOW_SIZE (AC3_BLOCK_SIZE * 2)
 #define AC3_CRITICAL_BANDS 50
 #define AC3_MAX_CPL_BANDS  18
+#define AC3_MAX_SPX_BANDS  17
 
 #include "ac3tab.h"
 

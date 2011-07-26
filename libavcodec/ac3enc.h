@@ -29,6 +29,7 @@
 #define AVCODEC_AC3ENC_H
 
 #include <stdint.h>
+#include "libavutil/lfg.h"
 #include "ac3.h"
 #include "ac3dsp.h"
 #include "avcodec.h"
@@ -106,6 +107,7 @@ typedef struct AC3EncOptions {
  */
 typedef struct AC3Block {
     CoefType **mdct_coef;                       ///< MDCT coefficients
+    CoefType **spx_coef;                        ///< SPX MDCT coefficients
     int32_t  **fixed_coef;                      ///< fixed-point MDCT coefficients
     uint8_t  **exp;                             ///< original exponents
     uint8_t  **grouped_exp;                     ///< grouped exponents
@@ -115,6 +117,8 @@ typedef struct AC3Block {
     uint16_t **qmant;                           ///< quantized mantissas
     uint8_t  **cpl_coord_exp;                   ///< coupling coord exponents           (cplcoexp)
     uint8_t  **cpl_coord_mant;                  ///< coupling coord mantissas           (cplcomant)
+    uint8_t  **spx_coord_exp;                   ///< coupling coord exponents           (cplcoexp)
+    uint8_t  **spx_coord_mant;                  ///< coupling coord mantissas           (cplcomant)
     uint8_t  coeff_shift[AC3_MAX_CHANNELS];     ///< fixed-point coefficient shift values
     uint8_t  new_rematrixing_strategy;          ///< send new rematrixing flags in this block
     int      num_rematrixing_bands;             ///< number of rematrixing bands
@@ -125,6 +129,12 @@ typedef struct AC3Block {
     int      num_cpl_channels;                  ///< number of channels in coupling
     uint8_t  new_cpl_coords;                    ///< send new coupling coordinates      (cplcoe)
     uint8_t  cpl_master_exp[AC3_MAX_CHANNELS];  ///< coupling coord master exponents    (mstrcplco)
+    int      new_spx_strategy;                  ///< send new SPX strategy
+    int      spx_in_use;                        ///< SPX in use for this block
+    uint8_t  channel_in_spx[AC3_MAX_CHANNELS];  ///< SPX turned on for this channel
+    uint8_t  new_spx_coords;                    ///< send new SPX coordinates
+    uint8_t  spx_master_exp[AC3_MAX_CHANNELS];  ///< SPX coord master exponents
+    uint8_t  spx_blend[AC3_MAX_CHANNELS];       ///< SPX blending factors
     int      new_snr_offsets;                   ///< send new SNR offsets
     int      new_cpl_leak;                      ///< send new coupling leak info
     int      end_freq[AC3_MAX_CHANNELS];        ///< end frequency bin                  (endmant)
@@ -189,6 +199,23 @@ typedef struct AC3EncodeContext {
     int num_cpl_bands;                      ///< number of coupling bands               (ncplbnd)
     uint8_t cpl_band_sizes[AC3_MAX_CPL_BANDS];  ///< number of coeffs in each coupling band
 
+    int spx_enabled;                        ///< SPX enabled for all frames
+    int spx_on;                             ///< SPX turned on for this frame
+    int spx_copy_start_code;                ///< SPX copy region start code
+    int spx_start_code;                     ///< SPX start code
+    int spx_end_code;                       ///< SPX end code
+    int spx_copy_start_freq;                ///< SPX copy region start frequency bin
+    int spx_start_freq;                     ///< SPX start frequency bin
+    int spx_end_freq;                       ///< SPX end frequency bin
+    int num_spx_subbands;                   ///< number of SPX subbands
+    int num_spx_bands;                      ///< number of SPX bands
+    uint8_t spx_band_sizes[AC3_MAX_SPX_BANDS]; ///< number of coeffs in each SPX band
+    int8_t spx_atten_code[AC3_MAX_CHANNELS];   ///< SPX attenuation codes
+    float spx_signal_blend[32][AC3_MAX_SPX_BANDS];  ///< SPX signal blend factors
+    float spx_noise_blend[32][AC3_MAX_SPX_BANDS];   ///< SPX noise blend factors
+    int use_spx_default_struct;                 ///< indicates use of default SPX band structure
+    uint8_t spx_band_struct[AC3_MAX_SPX_BANDS]; ///< SPX band structure
+
     int rematrixing_enabled;                ///< stereo rematrixing enabled
 
     /* bitrate allocation control */
@@ -210,6 +237,7 @@ typedef struct AC3EncodeContext {
     uint8_t *bap_buffer;
     uint8_t *bap1_buffer;
     CoefType *mdct_coef_buffer;
+    CoefType *spx_coef_buffer;
     int32_t *fixed_coef_buffer;
     uint8_t *exp_buffer;
     uint8_t *grouped_exp_buffer;
@@ -219,6 +247,8 @@ typedef struct AC3EncodeContext {
     int16_t *qmant_buffer;
     uint8_t *cpl_coord_exp_buffer;
     uint8_t *cpl_coord_mant_buffer;
+    uint8_t *spx_coord_exp_buffer;
+    uint8_t *spx_coord_mant_buffer;
 
     uint8_t exp_strategy[AC3_MAX_CHANNELS][AC3_MAX_BLOCKS]; ///< exponent strategies
     uint8_t frame_exp_strategy[AC3_MAX_CHANNELS];           ///< frame exp strategy index
@@ -249,7 +279,11 @@ int ff_ac3_validate_metadata(AC3EncodeContext *s);
 
 void ff_ac3_adjust_frame_size(AC3EncodeContext *s);
 
+void ff_ac3_compute_spx_strategy(AC3EncodeContext *s);
+
 void ff_ac3_compute_coupling_strategy(AC3EncodeContext *s);
+
+void ff_ac3_update_bandwidth(AC3EncodeContext *s);
 
 void ff_ac3_apply_rematrixing(AC3EncodeContext *s);
 

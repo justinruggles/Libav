@@ -1095,6 +1095,20 @@ const uint8_t ff_eac3_frm_expstr[32][6] = {
 };
 
 /**
+ * Table E3.13 Spectral Extension Band Table (spxbegf)
+ */
+const uint8_t ff_eac3_spx_start_subband_tab[8] = {
+    2,  3,  4,  5,  6,  7,  9, 11
+};
+
+/**
+ * Table E3.13 Spectral Extension Band Table (spxendf)
+ */
+const uint8_t ff_eac3_spx_end_subband_tab[8] = {
+    5,  6,  7,  9, 11, 13, 15, 17
+};
+
+/**
  * Table E.25: Spectral Extension Attenuation Table
  * ff_eac3_spx_atten_tab[code][bin]=pow(2.0,(bin+1)*(code+1)/-15.0);
  */
