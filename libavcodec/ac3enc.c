@@ -532,7 +532,10 @@ static void encode_exponents(AC3EncodeContext *s)
                 blk++;
                 continue;
             }
-            nb_coefs = block->end_freq[ch] - s->start_freq[ch];
+            if (s->cpl_vbw && !cpl && block->channel_in_cpl[ch])
+                nb_coefs = block->end_freq[CPL_CH];
+            else
+                nb_coefs = block->end_freq[ch] - s->start_freq[ch];
             blk1 = blk + 1;
 
             /* count the number of EXP_REUSE blocks after the current block
