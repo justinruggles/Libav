@@ -230,6 +230,38 @@ void ff_ac3_update_bandwidth(AC3EncodeContext *s, int cpl_start_subband)
                 block->end_freq[ch] = s->bandwidth_code * 3 + 73;
         }
     }
+
+    /* set number of rematrixing bands and rematrixing strategy reuse flags */
+    if (s->channel_mode == AC3_CHMODE_STEREO) {
+        int blk, bnd;
+        AC3Block *block, *av_uninit(block0);
+
+        for (blk = 0; blk < s->num_blocks; blk++) {
+            block = &s->blocks[blk];
+            block->new_rematrixing_strategy = !blk;
+
+            if (!s->rematrixing_enabled) {
+                block0 = block;
+                continue;
+            }
+
+            block->num_rematrixing_bands = 4;
+            if (block->cpl_in_use) {
+                block->num_rematrixing_bands -= (s->start_freq[CPL_CH] <= 61);
+                block->num_rematrixing_bands -= (s->start_freq[CPL_CH] == 37);
+                if (blk && block->num_rematrixing_bands != block0->num_rematrixing_bands)
+                    block->new_rematrixing_strategy = 1;
+            }
+
+            for (bnd = 0; bnd < block->num_rematrixing_bands; bnd++) {
+                if (blk &&
+                    block->rematrixing_flags[bnd] != block0->rematrixing_flags[bnd]) {
+                    block->new_rematrixing_strategy = 1;
+                }
+            }
+            block0 = block;
+        }
+    }
 }
 
 

@@ -342,7 +342,6 @@ static void compute_rematrixing_strategy(AC3EncodeContext *s)
 
     for (blk = 0; blk < s->num_blocks; blk++) {
         block = &s->blocks[blk];
-        block->new_rematrixing_strategy = !blk;
 
         if (!s->rematrixing_enabled) {
             block0 = block;
@@ -350,13 +349,14 @@ static void compute_rematrixing_strategy(AC3EncodeContext *s)
         }
 
         block->num_rematrixing_bands = 4;
-        if (block->cpl_in_use) {
+        if (block->cpl_in_use && !s->cpl_vbw) {
             block->num_rematrixing_bands -= (s->start_freq[CPL_CH] <= 61);
             block->num_rematrixing_bands -= (s->start_freq[CPL_CH] == 37);
-            if (blk && block->num_rematrixing_bands != block0->num_rematrixing_bands)
-                block->new_rematrixing_strategy = 1;
         }
-        nb_coefs = FFMIN(block->end_freq[1], block->end_freq[2]);
+        if (s->cpl_vbw && block->cpl_in_use)
+            nb_coefs = block->end_freq[CPL_CH];
+        else
+            nb_coefs = FFMIN(block->end_freq[1], block->end_freq[2]);
 
         for (bnd = 0; bnd < block->num_rematrixing_bands; bnd++) {
             /* calculate calculate sum of squared coeffs for one band in one block */
@@ -379,12 +379,6 @@ static void compute_rematrixing_strategy(AC3EncodeContext *s)
                 block->rematrixing_flags[bnd] = 1;
             else
                 block->rematrixing_flags[bnd] = 0;
-
-            /* determine if new rematrixing flags will be sent */
-            if (blk &&
-                block->rematrixing_flags[bnd] != block0->rematrixing_flags[bnd]) {
-                block->new_rematrixing_strategy = 1;
-            }
         }
         block0 = block;
     }
@@ -421,12 +415,13 @@ int AC3_NAME(encode_frame)(AVCodecContext *avctx, unsigned char *frame,
                       AC3_MAX_COEFS * s->num_blocks * s->channels);
 
     s->cpl_on = s->cpl_enabled;
+
+    compute_rematrixing_strategy(s);
+
     ff_ac3_compute_coupling_strategy(s);
 
     if (s->cpl_on)
         apply_channel_coupling(s);
-
-    compute_rematrixing_strategy(s);
 
     if (!s->fixed_point)
         scale_coefficients(s);
