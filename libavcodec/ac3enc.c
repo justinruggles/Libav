@@ -190,6 +190,49 @@ void ff_ac3_adjust_frame_size(AC3EncodeContext *s)
 }
 
 
+void ff_ac3_update_bandwidth(AC3EncodeContext *s, int cpl_start_subband)
+{
+    int blk, ch;
+
+    if (s->cpl_on) {
+        int i, cpl_start_band, cpl_end_band;
+        uint8_t *cpl_band_sizes = s->cpl_band_sizes;
+
+        cpl_end_band   = s->bandwidth_code / 4 + 3;
+        cpl_start_band = av_clip(cpl_start_subband, 0, FFMIN(cpl_end_band-1, 15));
+
+        s->num_cpl_subbands = cpl_end_band - cpl_start_band;
+
+        s->num_cpl_bands = 1;
+        *cpl_band_sizes  = 12;
+        for (i = cpl_start_band + 1; i < cpl_end_band; i++) {
+            if (ff_eac3_default_cpl_band_struct[i]) {
+                *cpl_band_sizes += 12;
+            } else {
+                s->num_cpl_bands++;
+                cpl_band_sizes++;
+                *cpl_band_sizes = 12;
+            }
+        }
+
+        s->start_freq[CPL_CH] = cpl_start_band * 12 + 37;
+        s->cpl_end_freq       = cpl_end_band   * 12 + 37;
+        for (blk = 0; blk < s->num_blocks; blk++)
+            s->blocks[blk].end_freq[CPL_CH] = s->cpl_end_freq;
+    }
+
+    for (blk = 0; blk < s->num_blocks; blk++) {
+        AC3Block *block = &s->blocks[blk];
+        for (ch = 1; ch <= s->fbw_channels; ch++) {
+            if (block->channel_in_cpl[ch])
+                block->end_freq[ch] = s->start_freq[CPL_CH];
+            else
+                block->end_freq[ch] = s->bandwidth_code * 3 + 73;
+        }
+    }
+}
+
+
 void ff_ac3_compute_coupling_strategy(AC3EncodeContext *s)
 {
     int blk, ch;
@@ -243,16 +286,7 @@ void ff_ac3_compute_coupling_strategy(AC3EncodeContext *s)
     if (!num_cpl_blocks)
         s->cpl_on = 0;
 
-    /* set bandwidth for each channel */
-    for (blk = 0; blk < s->num_blocks; blk++) {
-        AC3Block *block = &s->blocks[blk];
-        for (ch = 1; ch <= s->fbw_channels; ch++) {
-            if (block->channel_in_cpl[ch])
-                block->end_freq[ch] = s->start_freq[CPL_CH];
-            else
-                block->end_freq[ch] = s->bandwidth_code * 3 + 73;
-        }
-    }
+    ff_ac3_update_bandwidth(s, s->cpl_start_subband);
 }
 
 
@@ -2181,7 +2215,20 @@ static av_cold int validate_options(AC3EncodeContext *s)
 static av_cold void set_bandwidth(AC3EncodeContext *s)
 {
     int blk, ch;
-    int av_uninit(cpl_start);
+
+    if (s->cpl_enabled && s->options.cpl_start == AC3ENC_OPT_CPL_START_VAR) {
+        s->cpl_vbw = 1;
+        if (!s->cutoff) {
+            /* default cutoff for variable bandwidth coupling */
+            int rate_per_channel = s->bit_rate / s->fbw_channels;
+            if (rate_per_channel >= 112000)
+                s->cutoff = FFMIN(20000, s->sample_rate / 2);
+            else if (rate_per_channel >= 64000)
+                s->cutoff = FFMIN(18000, s->sample_rate / 2);
+            else
+                s->cutoff = FFMIN(15000, s->sample_rate / 2);
+        }
+    }
 
     if (s->cutoff) {
         /* calculate bandwidth based on user-specified cutoff frequency */
@@ -2208,44 +2255,22 @@ static av_cold void set_bandwidth(AC3EncodeContext *s)
 
     /* initialize coupling strategy */
     if (s->cpl_enabled) {
-        if (s->options.cpl_start != AC3ENC_OPT_AUTO) {
-            cpl_start = s->options.cpl_start;
+        if (s->cpl_vbw) {
+            s->cpl_start_subband = 0;
+        } else if (s->options.cpl_start != AC3ENC_OPT_AUTO) {
+            s->cpl_start_subband = s->options.cpl_start;
         } else {
-            cpl_start = ac3_coupling_start_tab[s->channel_mode-2][s->bit_alloc.sr_code][s->frame_size_code/2];
-            if (cpl_start < 0) {
+            s->cpl_start_subband = ac3_coupling_start_tab[s->channel_mode-2][s->bit_alloc.sr_code][s->frame_size_code/2];
+            if (s->cpl_start_subband < 0) {
                 if (s->options.channel_coupling == AC3ENC_OPT_AUTO)
                     s->cpl_enabled = 0;
                 else
-                    cpl_start = 15;
+                    s->cpl_start_subband = 15;
             }
         }
     }
-    if (s->cpl_enabled) {
-        int i, cpl_start_band, cpl_end_band;
-        uint8_t *cpl_band_sizes = s->cpl_band_sizes;
-
-        cpl_end_band   = s->bandwidth_code / 4 + 3;
-        cpl_start_band = av_clip(cpl_start, 0, FFMIN(cpl_end_band-1, 15));
-
-        s->num_cpl_subbands = cpl_end_band - cpl_start_band;
-
-        s->num_cpl_bands = 1;
-        *cpl_band_sizes  = 12;
-        for (i = cpl_start_band + 1; i < cpl_end_band; i++) {
-            if (ff_eac3_default_cpl_band_struct[i]) {
-                *cpl_band_sizes += 12;
-            } else {
-                s->num_cpl_bands++;
-                cpl_band_sizes++;
-                *cpl_band_sizes = 12;
-            }
-        }
-
-        s->start_freq[CPL_CH] = cpl_start_band * 12 + 37;
-        s->cpl_end_freq       = cpl_end_band   * 12 + 37;
-        for (blk = 0; blk < s->num_blocks; blk++)
-            s->blocks[blk].end_freq[CPL_CH] = s->cpl_end_freq;
-    }
+    s->cpl_on = s->cpl_enabled;
+    ff_ac3_update_bandwidth(s, s->cpl_start_subband);
 }
 
 

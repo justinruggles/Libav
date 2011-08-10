@@ -83,6 +83,7 @@ typedef int64_t CoefSumType;
 #define AC3ENC_OPT_DOWNMIX_LORO     2
 #define AC3ENC_OPT_ADCONV_STANDARD  0
 #define AC3ENC_OPT_ADCONV_HDCD      1
+#define AC3ENC_OPT_CPL_START_VAR   -2
 
 
 /**
@@ -204,6 +205,8 @@ typedef struct AC3EncodeContext {
 
     int cpl_on;                             ///< coupling turned on for this frame
     int cpl_enabled;                        ///< coupling enabled for all frames
+    int cpl_vbw;                            ///< indicates use of variable coupling start band
+    int cpl_start_subband;                  ///< lowest starting coupling subband
     int num_cpl_subbands;                   ///< number of coupling subbands            (ncplsubnd)
     int num_cpl_bands;                      ///< number of coupling bands               (ncplbnd)
     uint8_t cpl_band_sizes[AC3_MAX_CPL_BANDS];  ///< number of coeffs in each coupling band
@@ -267,6 +270,8 @@ int ff_ac3_encode_close(AVCodecContext *avctx);
 int ff_ac3_validate_metadata(AC3EncodeContext *s);
 
 void ff_ac3_adjust_frame_size(AC3EncodeContext *s);
+
+void ff_ac3_update_bandwidth(AC3EncodeContext *s, int cpl_start_subband);
 
 void ff_ac3_compute_coupling_strategy(AC3EncodeContext *s);
 
