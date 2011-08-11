@@ -342,19 +342,23 @@ static void compute_rematrixing_strategy(AC3EncodeContext *s)
 
     for (blk = 0; blk < s->num_blocks; blk++) {
         block = &s->blocks[blk];
+        block->new_rematrixing_strategy = !blk;
+
+        block->num_rematrixing_bands = 4;
+        if (block->cpl_in_use && !s->cpl_vbw) {
+            block->num_rematrixing_bands -= (s->start_freq[CPL_CH] <= 61);
+            block->num_rematrixing_bands -= (s->start_freq[CPL_CH] == 37);
+            if (blk && block->num_rematrixing_bands != block0->num_rematrixing_bands)
+                block->new_rematrixing_strategy = 1;
+        }
 
         if (!s->rematrixing_enabled) {
             block0 = block;
             continue;
         }
 
-        block->num_rematrixing_bands = 4;
-        if (block->cpl_in_use && !s->cpl_vbw) {
-            block->num_rematrixing_bands -= (s->start_freq[CPL_CH] <= 61);
-            block->num_rematrixing_bands -= (s->start_freq[CPL_CH] == 37);
-        }
-        if (s->cpl_vbw && block->cpl_in_use)
-            nb_coefs = block->end_freq[CPL_CH];
+        if (s->cpl_vbw)
+            nb_coefs = s->bandwidth_code * 3 + 73;
         else
             nb_coefs = FFMIN(block->end_freq[1], block->end_freq[2]);
 
@@ -379,6 +383,11 @@ static void compute_rematrixing_strategy(AC3EncodeContext *s)
                 block->rematrixing_flags[bnd] = 1;
             else
                 block->rematrixing_flags[bnd] = 0;
+
+            if (blk &&
+                block->rematrixing_flags[bnd] != block0->rematrixing_flags[bnd]) {
+                block->new_rematrixing_strategy = 1;
+            }
         }
         block0 = block;
     }
@@ -415,10 +424,14 @@ int AC3_NAME(encode_frame)(AVCodecContext *avctx, unsigned char *frame,
                       AC3_MAX_COEFS * s->num_blocks * s->channels);
 
     s->cpl_on = s->cpl_enabled;
+    if (s->cpl_vbw)
+        s->cpl_start_subband = 0;
+
+    ff_ac3_compute_coupling_strategy(s);
 
     compute_rematrixing_strategy(s);
 
-    ff_ac3_compute_coupling_strategy(s);
+    ff_ac3_update_bandwidth(s, s->cpl_start_subband);
 
     if (s->cpl_on)
         apply_channel_coupling(s);

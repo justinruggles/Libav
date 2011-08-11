@@ -190,81 +190,6 @@ void ff_ac3_adjust_frame_size(AC3EncodeContext *s)
 }
 
 
-void ff_ac3_update_bandwidth(AC3EncodeContext *s, int cpl_start_subband)
-{
-    int blk, ch;
-
-    if (s->cpl_on) {
-        int i, cpl_start_band, cpl_end_band;
-        uint8_t *cpl_band_sizes = s->cpl_band_sizes;
-
-        cpl_end_band   = s->bandwidth_code / 4 + 3;
-        cpl_start_band = av_clip(cpl_start_subband, 0, FFMIN(cpl_end_band-1, 15));
-
-        s->num_cpl_subbands = cpl_end_band - cpl_start_band;
-
-        s->num_cpl_bands = 1;
-        *cpl_band_sizes  = 12;
-        for (i = cpl_start_band + 1; i < cpl_end_band; i++) {
-            if (ff_eac3_default_cpl_band_struct[i]) {
-                *cpl_band_sizes += 12;
-            } else {
-                s->num_cpl_bands++;
-                cpl_band_sizes++;
-                *cpl_band_sizes = 12;
-            }
-        }
-
-        s->start_freq[CPL_CH] = cpl_start_band * 12 + 37;
-        s->cpl_end_freq       = cpl_end_band   * 12 + 37;
-        for (blk = 0; blk < s->num_blocks; blk++)
-            s->blocks[blk].end_freq[CPL_CH] = s->cpl_end_freq;
-    }
-
-    for (blk = 0; blk < s->num_blocks; blk++) {
-        AC3Block *block = &s->blocks[blk];
-        for (ch = 1; ch <= s->fbw_channels; ch++) {
-            if (block->channel_in_cpl[ch])
-                block->end_freq[ch] = s->start_freq[CPL_CH];
-            else
-                block->end_freq[ch] = s->bandwidth_code * 3 + 73;
-        }
-    }
-
-    /* set number of rematrixing bands and rematrixing strategy reuse flags */
-    if (s->channel_mode == AC3_CHMODE_STEREO) {
-        int blk, bnd;
-        AC3Block *block, *av_uninit(block0);
-
-        for (blk = 0; blk < s->num_blocks; blk++) {
-            block = &s->blocks[blk];
-            block->new_rematrixing_strategy = !blk;
-
-            if (!s->rematrixing_enabled) {
-                block0 = block;
-                continue;
-            }
-
-            block->num_rematrixing_bands = 4;
-            if (block->cpl_in_use) {
-                block->num_rematrixing_bands -= (s->start_freq[CPL_CH] <= 61);
-                block->num_rematrixing_bands -= (s->start_freq[CPL_CH] == 37);
-                if (blk && block->num_rematrixing_bands != block0->num_rematrixing_bands)
-                    block->new_rematrixing_strategy = 1;
-            }
-
-            for (bnd = 0; bnd < block->num_rematrixing_bands; bnd++) {
-                if (blk &&
-                    block->rematrixing_flags[bnd] != block0->rematrixing_flags[bnd]) {
-                    block->new_rematrixing_strategy = 1;
-                }
-            }
-            block0 = block;
-        }
-    }
-}
-
-
 void ff_ac3_compute_coupling_strategy(AC3EncodeContext *s)
 {
     int blk, ch;
@@ -317,8 +242,68 @@ void ff_ac3_compute_coupling_strategy(AC3EncodeContext *s)
     }
     if (!num_cpl_blocks)
         s->cpl_on = 0;
+}
 
-    ff_ac3_update_bandwidth(s, s->cpl_start_subband);
+
+void ff_ac3_update_bandwidth(AC3EncodeContext *s, int cpl_start_subband)
+{
+    int blk, ch;
+
+    if (s->cpl_on) {
+        int i, cpl_start_band, cpl_end_band;
+        uint8_t *cpl_band_sizes = s->cpl_band_sizes;
+
+        cpl_end_band   = s->bandwidth_code / 4 + 3;
+        cpl_start_band = av_clip(cpl_start_subband, 0, FFMIN(cpl_end_band-1, 15));
+
+        s->num_cpl_subbands = cpl_end_band - cpl_start_band;
+
+        s->num_cpl_bands = 1;
+        *cpl_band_sizes  = 12;
+        for (i = cpl_start_band + 1; i < cpl_end_band; i++) {
+            if (ff_eac3_default_cpl_band_struct[i]) {
+                *cpl_band_sizes += 12;
+            } else {
+                s->num_cpl_bands++;
+                cpl_band_sizes++;
+                *cpl_band_sizes = 12;
+            }
+        }
+
+        s->start_freq[CPL_CH] = cpl_start_band * 12 + 37;
+        s->cpl_end_freq       = cpl_end_band   * 12 + 37;
+        for (blk = 0; blk < s->num_blocks; blk++)
+            s->blocks[blk].end_freq[CPL_CH] = s->cpl_end_freq;
+    }
+
+    ff_ac3_compute_coupling_strategy(s);
+
+    for (ch = 1; ch <= s->channels; ch++)
+        s->start_freq[ch] = 0;
+    for (blk = 0; blk < s->num_blocks; blk++) {
+        AC3Block *block = &s->blocks[blk];
+        for (ch = 1; ch <= s->fbw_channels; ch++) {
+            if (block->channel_in_cpl[ch])
+                block->end_freq[ch] = s->start_freq[CPL_CH];
+            else
+                block->end_freq[ch] = s->bandwidth_code * 3 + 73;
+        }
+        if (s->lfe_on)
+            block->end_freq[s->lfe_channel] = 7;
+    }
+
+    /* set number of rematrixing bands and rematrixing strategy reuse flags */
+    if (s->channel_mode == AC3_CHMODE_STEREO) {
+        for (blk = 0; blk < s->num_blocks; blk++) {
+            AC3Block *block = &s->blocks[blk];
+
+            block->num_rematrixing_bands = 4;
+            if (block->cpl_in_use) {
+                block->num_rematrixing_bands -= (s->start_freq[CPL_CH] <= 61);
+                block->num_rematrixing_bands -= (s->start_freq[CPL_CH] == 37);
+            }
+        }
+    }
 }
 
 
@@ -327,7 +312,7 @@ void ff_ac3_compute_coupling_strategy(AC3EncodeContext *s)
  */
 void ff_ac3_apply_rematrixing(AC3EncodeContext *s)
 {
-    int nb_coefs;
+    int nb_coefs, num_rematrixing_bands;
     int blk, bnd, i;
     int start, end;
     uint8_t *flags;
@@ -339,8 +324,14 @@ void ff_ac3_apply_rematrixing(AC3EncodeContext *s)
         AC3Block *block = &s->blocks[blk];
         if (block->new_rematrixing_strategy)
             flags = block->rematrixing_flags;
-        nb_coefs = FFMIN(block->end_freq[1], block->end_freq[2]);
-        for (bnd = 0; bnd < block->num_rematrixing_bands; bnd++) {
+        if (s->cpl_vbw) {
+            nb_coefs              = s->bandwidth_code * 3 + 73;
+            num_rematrixing_bands = 4;
+        } else {
+            nb_coefs              = FFMIN(block->end_freq[1], block->end_freq[2]);
+            num_rematrixing_bands = block->num_rematrixing_bands;
+        }
+        for (bnd = 0; bnd < num_rematrixing_bands; bnd++) {
             if (flags[bnd]) {
                 start = ff_ac3_rematrix_band_tab[bnd];
                 end   = FFMIN(nb_coefs, ff_ac3_rematrix_band_tab[bnd+1]);
@@ -564,8 +555,8 @@ static void encode_exponents(AC3EncodeContext *s)
                 blk++;
                 continue;
             }
-            if (s->cpl_vbw && !cpl && block->channel_in_cpl[ch])
-                nb_coefs = block->end_freq[CPL_CH];
+            if (s->cpl_vbw && !cpl)
+                nb_coefs = s->bandwidth_code * 3 + 73;
             else
                 nb_coefs = block->end_freq[ch] - s->start_freq[ch];
             blk1 = blk + 1;
@@ -999,11 +990,16 @@ static void bit_alloc_masking(AC3EncodeContext *s)
                Since we currently do not calculate bap when exponent
                strategy is EXP_REUSE we do not need to calculate psd or mask. */
             if (s->exp_strategy[ch][blk] != EXP_REUSE) {
+                int end_freq;
+                if (!s->cpl_vbw || ch == CPL_CH || ch == s->lfe_channel)
+                    end_freq = block->end_freq[ch];
+                else
+                    end_freq = s->bandwidth_code * 3 + 73;
                 ff_ac3_bit_alloc_calc_psd(block->exp[ch], s->start_freq[ch],
-                                          block->end_freq[ch], block->psd[ch],
+                                          end_freq, block->psd[ch],
                                           block->band_psd[ch]);
                 ff_ac3_bit_alloc_calc_mask(&s->bit_alloc, block->band_psd[ch],
-                                           s->start_freq[ch], block->end_freq[ch],
+                                           s->start_freq[ch], end_freq,
                                            ff_ac3_fast_gain_tab[s->fast_gain_code[ch]],
                                            ch == s->lfe_channel,
                                            DBA_NONE, 0, NULL, NULL, NULL,
@@ -1116,8 +1112,13 @@ static int bit_alloc(AC3EncodeContext *s, int snr_offset)
                advantage of that by reusing the bit allocation pointers
                whenever we reuse exponents. */
             if (s->exp_strategy[ch][blk] != EXP_REUSE) {
+                int end_freq;
+                if (!s->cpl_vbw || ch == CPL_CH || ch == s->lfe_channel)
+                    end_freq = block->end_freq[ch];
+                else
+                    end_freq = s->bandwidth_code * 3 + 73;
                 s->ac3dsp.bit_alloc_calc_bap(block->mask[ch], block->psd[ch],
-                                             s->start_freq[ch], block->end_freq[ch],
+                                             s->start_freq[ch], end_freq,
                                              snr_offset, s->bit_alloc.floor,
                                              ff_ac3_bap_tab, s->ref_bap[ch][blk]);
             }
@@ -1189,6 +1190,14 @@ int ff_ac3_compute_bit_allocation(AC3EncodeContext *s)
     s->exponent_bits = count_exponent_bits(s);
 
     bit_alloc_masking(s);
+
+    if (s->cpl_vbw) {
+        s->cpl_on = 0;
+        ff_ac3_update_bandwidth(s, 0);
+
+        count_frame_bits(s);
+        s->exponent_bits = count_exponent_bits(s);
+    }
 
     return cbr_bit_allocation(s);
 }
@@ -2249,8 +2258,6 @@ static av_cold int validate_options(AC3EncodeContext *s)
  */
 static av_cold void set_bandwidth(AC3EncodeContext *s)
 {
-    int blk, ch;
-
     if (s->cpl_enabled && s->options.cpl_start == AC3ENC_OPT_CPL_START_VAR) {
         s->cpl_vbw = 1;
         if (!s->cutoff) {
@@ -2274,19 +2281,8 @@ static av_cold void set_bandwidth(AC3EncodeContext *s)
         /* use default bandwidth setting */
         s->bandwidth_code = ac3_bandwidth_tab[s->fbw_channels-1][s->bit_alloc.sr_code][s->frame_size_code/2];
     }
-
-    /* set number of coefficients for each channel */
-    for (ch = 1; ch <= s->fbw_channels; ch++) {
-        s->start_freq[ch] = 0;
-        for (blk = 0; blk < s->num_blocks; blk++)
-            s->blocks[blk].end_freq[ch] = s->bandwidth_code * 3 + 73;
-    }
-    /* LFE channel always has 7 coefs */
-    if (s->lfe_on) {
-        s->start_freq[s->lfe_channel] = 0;
-        for (blk = 0; blk < s->num_blocks; blk++)
-            s->blocks[blk].end_freq[ch] = 7;
-    }
+    if (s->cpl_enabled)
+        s->bandwidth_code &= ~0x3;
 
     /* initialize coupling strategy */
     if (s->cpl_enabled) {
