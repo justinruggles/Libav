@@ -271,7 +271,7 @@ int ff_ac3_validate_metadata(AC3EncodeContext *s);
 
 void ff_ac3_adjust_frame_size(AC3EncodeContext *s);
 
-void ff_ac3_update_bandwidth(AC3EncodeContext *s, int cpl_start_subband);
+void ff_ac3_update_bandwidth(AC3EncodeContext *s);
 
 void ff_ac3_compute_coupling_strategy(AC3EncodeContext *s);
 
@@ -301,6 +301,9 @@ int ff_ac3_float_mdct_init(AC3EncodeContext *s);
 
 int ff_ac3_fixed_allocate_sample_buffers(AC3EncodeContext *s);
 int ff_ac3_float_allocate_sample_buffers(AC3EncodeContext *s);
+
+void ff_ac3_fixed_apply_channel_coupling(AC3EncodeContext *s);
+void ff_ac3_float_apply_channel_coupling(AC3EncodeContext *s);
 
 int ff_ac3_fixed_encode_frame(AVCodecContext *avctx, unsigned char *frame,
                               int buf_size, void *data);

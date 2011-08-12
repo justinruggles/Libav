@@ -123,7 +123,7 @@ static void apply_mdct(AC3EncodeContext *s)
 /**
  * Calculate coupling channel and coupling coordinates.
  */
-static void apply_channel_coupling(AC3EncodeContext *s)
+void AC3_NAME(apply_channel_coupling)(AC3EncodeContext *s)
 {
     LOCAL_ALIGNED_16(CoefType, cpl_coords,      [AC3_MAX_BLOCKS], [AC3_MAX_CHANNELS][16]);
 #if CONFIG_AC3ENC_FLOAT
@@ -431,10 +431,10 @@ int AC3_NAME(encode_frame)(AVCodecContext *avctx, unsigned char *frame,
 
     compute_rematrixing_strategy(s);
 
-    ff_ac3_update_bandwidth(s, s->cpl_start_subband);
+    ff_ac3_update_bandwidth(s);
 
     if (s->cpl_on)
-        apply_channel_coupling(s);
+        AC3_NAME(apply_channel_coupling)(s);
 
     if (!s->fixed_point)
         scale_coefficients(s);

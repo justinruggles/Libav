@@ -245,7 +245,7 @@ void ff_ac3_compute_coupling_strategy(AC3EncodeContext *s)
 }
 
 
-void ff_ac3_update_bandwidth(AC3EncodeContext *s, int cpl_start_subband)
+void ff_ac3_update_bandwidth(AC3EncodeContext *s)
 {
     int blk, ch;
 
@@ -254,7 +254,9 @@ void ff_ac3_update_bandwidth(AC3EncodeContext *s, int cpl_start_subband)
         uint8_t *cpl_band_sizes = s->cpl_band_sizes;
 
         cpl_end_band   = s->bandwidth_code / 4 + 3;
-        cpl_start_band = av_clip(cpl_start_subband, 0, FFMIN(cpl_end_band-1, 15));
+        cpl_start_band = av_clip(s->cpl_start_subband, 0, FFMIN(cpl_end_band-1, 15));
+        if (s->cpl_vbw && cpl_start_band > 8)
+            cpl_start_band &= ~0x1;
 
         s->num_cpl_subbands = cpl_end_band - cpl_start_band;
 
@@ -555,9 +557,9 @@ static void encode_exponents(AC3EncodeContext *s)
                 blk++;
                 continue;
             }
-            if (s->cpl_vbw && !cpl)
+            /*if (s->cpl_vbw && !cpl)
                 nb_coefs = s->bandwidth_code * 3 + 73;
-            else
+            else*/
                 nb_coefs = block->end_freq[ch] - s->start_freq[ch];
             blk1 = blk + 1;
 
@@ -1192,11 +1194,14 @@ int ff_ac3_compute_bit_allocation(AC3EncodeContext *s)
     bit_alloc_masking(s);
 
     if (s->cpl_vbw) {
-        s->cpl_on = 0;
-        ff_ac3_update_bandwidth(s, 0);
-
+        s->cpl_start_subband = 14;
+        ff_ac3_update_bandwidth(s);
+        if (s->cpl_on)
+            ff_ac3_float_apply_channel_coupling(s);
+        encode_exponents(s);
         count_frame_bits(s);
         s->exponent_bits = count_exponent_bits(s);
+        bit_alloc_masking(s);
     }
 
     return cbr_bit_allocation(s);
@@ -2301,7 +2306,7 @@ static av_cold void set_bandwidth(AC3EncodeContext *s)
         }
     }
     s->cpl_on = s->cpl_enabled;
-    ff_ac3_update_bandwidth(s, s->cpl_start_subband);
+    ff_ac3_update_bandwidth(s);
 }
 
 
