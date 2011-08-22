@@ -125,14 +125,14 @@ static void apply_mdct(AC3EncodeContext *s)
  */
 void AC3_NAME(apply_channel_coupling)(AC3EncodeContext *s)
 {
-    LOCAL_ALIGNED_16(CoefType, cpl_coords,      [AC3_MAX_BLOCKS], [AC3_MAX_CHANNELS][16]);
+    LOCAL_ALIGNED_16(CoefType, cpl_coords,      [AC3_MAX_BLOCKS], [AC3_MAX_CHANNELS][32]);
 #if CONFIG_AC3ENC_FLOAT
-    LOCAL_ALIGNED_16(int32_t, fixed_cpl_coords, [AC3_MAX_BLOCKS], [AC3_MAX_CHANNELS][16]);
+    LOCAL_ALIGNED_16(int32_t, fixed_cpl_coords, [AC3_MAX_BLOCKS], [AC3_MAX_CHANNELS][32]);
 #else
-    int32_t (*fixed_cpl_coords)[AC3_MAX_CHANNELS][16] = cpl_coords;
+    int32_t (*fixed_cpl_coords)[AC3_MAX_CHANNELS][32] = cpl_coords;
 #endif
     int blk, ch, bnd, i, j;
-    CoefSumType energy[AC3_MAX_BLOCKS][AC3_MAX_CHANNELS][16] = {{{0}}};
+    CoefSumType energy[AC3_MAX_BLOCKS][AC3_MAX_CHANNELS][32] = {{{0}}};
     int cpl_start, num_cpl_coefs;
 
     memset(cpl_coords,       0, AC3_MAX_BLOCKS * sizeof(*cpl_coords));
@@ -280,14 +280,14 @@ void AC3_NAME(apply_channel_coupling)(AC3EncodeContext *s)
 #if CONFIG_AC3ENC_FLOAT
         s->ac3dsp.float_to_fixed24(fixed_cpl_coords[blk][1],
                                    cpl_coords[blk][1],
-                                   s->fbw_channels * 16);
+                                   s->fbw_channels * 32);
 #endif
         s->ac3dsp.extract_exponents(block->cpl_coord_exp[1],
                                     fixed_cpl_coords[blk][1],
-                                    s->fbw_channels * 16);
+                                    s->fbw_channels * 32);
 
         for (ch = 1; ch <= s->fbw_channels; ch++) {
-            int bnd, min_exp, max_exp, master_exp;
+            int bnd, bnd1, min_exp, max_exp, master_exp;
 
             if (!block->new_cpl_coords[ch])
                 continue;
@@ -303,22 +303,37 @@ void AC3_NAME(apply_channel_coupling)(AC3EncodeContext *s)
             master_exp = FFMAX(master_exp, 0);
             while (min_exp < master_exp * 3)
                 master_exp--;
+            bnd1 = s->cpl_start_subband;
             for (bnd = 0; bnd < s->num_cpl_bands; bnd++) {
-                block->cpl_coord_exp[ch][bnd] = av_clip(block->cpl_coord_exp[ch][bnd] -
-                                                        master_exp * 3, 0, 15);
+                int cpl_exp = av_clip(block->cpl_coord_exp[ch][bnd] -
+                                      master_exp * 3, 0, 15);
+                block->cpl_coord_exp[ch][bnd1] = cpl_exp;
+
+                bnd1++;
+                while (ff_eac3_default_cpl_band_struct[bnd1]) {
+                    block->cpl_coord_exp[ch][bnd1] = cpl_exp;
+                    bnd1++;
+                }
             }
             block->cpl_master_exp[ch] = master_exp;
 
             /* quantize mantissas */
+            bnd1 = s->cpl_start_subband;
             for (bnd = 0; bnd < s->num_cpl_bands; bnd++) {
-                int cpl_exp  = block->cpl_coord_exp[ch][bnd];
+                int cpl_exp  = block->cpl_coord_exp[ch][bnd1];
                 int cpl_mant = (fixed_cpl_coords[blk][ch][bnd] << (5 + cpl_exp + master_exp * 3)) >> 24;
                 if (cpl_exp == 15)
                     cpl_mant >>= 1;
                 else
                     cpl_mant -= 16;
 
-                block->cpl_coord_mant[ch][bnd] = cpl_mant;
+                block->cpl_coord_mant[ch][bnd1] = cpl_mant;
+
+                bnd1++;
+                while (ff_eac3_default_cpl_band_struct[bnd1]) {
+                    block->cpl_coord_mant[ch][bnd1] = cpl_mant;
+                    bnd1++;
+                }
             }
         }
     }

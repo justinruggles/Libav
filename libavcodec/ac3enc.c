@@ -1214,7 +1214,9 @@ int ff_ac3_compute_bit_allocation(AC3EncodeContext *s)
         s->cpl_start_subband = 8;
         ff_ac3_update_bandwidth(s);
         if (s->cpl_on) {
-            ff_ac3_float_apply_channel_coupling(s);
+            /* TODO: partially recalculate coupling coordinates for the first
+             *       coupling band. currently it reuses coordinates which were
+             *       optimal for a larger band. */
             encode_exponents_cpl(s);
         }
         count_frame_bits(s);
@@ -1498,10 +1500,14 @@ static void output_audio_block(AC3EncodeContext *s, int blk)
                 if (!s->eac3 || block->new_cpl_coords[ch] != 2)
                     put_bits(&s->pb, 1, block->new_cpl_coords[ch]);
                 if (block->new_cpl_coords[ch]) {
+                    int bnd1 = s->cpl_start_subband;
                     put_bits(&s->pb, 2, block->cpl_master_exp[ch]);
                     for (bnd = 0; bnd < s->num_cpl_bands; bnd++) {
-                        put_bits(&s->pb, 4, block->cpl_coord_exp [ch][bnd]);
-                        put_bits(&s->pb, 4, block->cpl_coord_mant[ch][bnd]);
+                        put_bits(&s->pb, 4, block->cpl_coord_exp [ch][bnd1]);
+                        put_bits(&s->pb, 4, block->cpl_coord_mant[ch][bnd1]);
+                        bnd1++;
+                        while (ff_eac3_default_cpl_band_struct[bnd1])
+                            bnd1++;
                     }
                 }
             }
@@ -2358,9 +2364,9 @@ static av_cold int allocate_buffers(AC3EncodeContext *s)
     FF_ALLOC_OR_GOTO(avctx, s->qmant_buffer, total_coefs *
                      sizeof(*s->qmant_buffer), alloc_fail);
     if (s->cpl_enabled) {
-        FF_ALLOC_OR_GOTO(avctx, s->cpl_coord_exp_buffer, channel_blocks * 16 *
+        FF_ALLOC_OR_GOTO(avctx, s->cpl_coord_exp_buffer, channel_blocks * 32 *
                          sizeof(*s->cpl_coord_exp_buffer), alloc_fail);
-        FF_ALLOC_OR_GOTO(avctx, s->cpl_coord_mant_buffer, channel_blocks * 16 *
+        FF_ALLOC_OR_GOTO(avctx, s->cpl_coord_mant_buffer, channel_blocks * 32 *
                          sizeof(*s->cpl_coord_mant_buffer), alloc_fail);
     }
     for (blk = 0; blk < s->num_blocks; blk++) {
@@ -2394,8 +2400,8 @@ static av_cold int allocate_buffers(AC3EncodeContext *s)
             block->mask[ch]        = &s->mask_buffer       [64            * (blk * channels + ch)];
             block->qmant[ch]       = &s->qmant_buffer      [AC3_MAX_COEFS * (blk * channels + ch)];
             if (s->cpl_enabled) {
-                block->cpl_coord_exp[ch]  = &s->cpl_coord_exp_buffer [16  * (blk * channels + ch)];
-                block->cpl_coord_mant[ch] = &s->cpl_coord_mant_buffer[16  * (blk * channels + ch)];
+                block->cpl_coord_exp[ch]  = &s->cpl_coord_exp_buffer [32  * (blk * channels + ch)];
+                block->cpl_coord_mant[ch] = &s->cpl_coord_mant_buffer[32  * (blk * channels + ch)];
             }
 
             /* arrangement: channel, block, coeff */
