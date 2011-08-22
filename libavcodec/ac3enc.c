@@ -532,19 +532,12 @@ static void encode_exponents_blk_ch(uint8_t *exp, int nb_exps, int exp_strategy,
 }
 
 
-/**
- * Encode exponents from original extracted form to what the decoder will see.
- * This copies and groups exponents based on exponent strategy and reduces
- * deltas between adjacent exponent groups so that they can be differentially
- * encoded.
- */
-static void encode_exponents(AC3EncodeContext *s)
+static void encode_exponents_ch(AC3EncodeContext *s, int ch)
 {
-    int blk, blk1, ch, cpl;
+    int blk, blk1, cpl;
     uint8_t *exp, *exp_strategy;
     int nb_coefs, num_reuse_blocks;
 
-    for (ch = !s->cpl_on; ch <= s->channels; ch++) {
         exp          = s->blocks[0].exp[ch] + s->start_freq[ch];
         exp_strategy = s->exp_strategy[ch];
 
@@ -557,9 +550,9 @@ static void encode_exponents(AC3EncodeContext *s)
                 blk++;
                 continue;
             }
-            /*if (s->cpl_vbw && !cpl)
+            if (s->cpl_vbw && !cpl)
                 nb_coefs = s->bandwidth_code * 3 + 73;
-            else*/
+            else
                 nb_coefs = block->end_freq[ch] - s->start_freq[ch];
             blk1 = blk + 1;
 
@@ -581,6 +574,30 @@ static void encode_exponents(AC3EncodeContext *s)
             exp += AC3_MAX_COEFS * (num_reuse_blocks + 1);
             blk = blk1;
         }
+}
+
+
+static void encode_exponents_cpl(AC3EncodeContext *s)
+{
+    encode_exponents_ch(s, CPL_CH);
+
+    /* reference block numbers have been changed, so reset ref_bap_set */
+    s->ref_bap_set = 0;
+}
+
+
+/**
+ * Encode exponents from original extracted form to what the decoder will see.
+ * This copies and groups exponents based on exponent strategy and reduces
+ * deltas between adjacent exponent groups so that they can be differentially
+ * encoded.
+ */
+static void encode_exponents(AC3EncodeContext *s)
+{
+    int  ch;
+
+    for (ch = !s->cpl_on; ch <= s->channels; ch++) {
+        encode_exponents_ch(s, ch);
     }
 
     /* reference block numbers have been changed, so reset ref_bap_set */
@@ -1194,11 +1211,12 @@ int ff_ac3_compute_bit_allocation(AC3EncodeContext *s)
     bit_alloc_masking(s);
 
     if (s->cpl_vbw) {
-        s->cpl_start_subband = 14;
+        s->cpl_start_subband = 8;
         ff_ac3_update_bandwidth(s);
-        if (s->cpl_on)
+        if (s->cpl_on) {
             ff_ac3_float_apply_channel_coupling(s);
-        encode_exponents(s);
+            encode_exponents_cpl(s);
+        }
         count_frame_bits(s);
         s->exponent_bits = count_exponent_bits(s);
         bit_alloc_masking(s);
