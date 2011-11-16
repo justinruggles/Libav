@@ -363,6 +363,7 @@ enum CodecID {
     CODEC_ID_8SVX_FIB,
 #endif
     CODEC_ID_BMV_AUDIO,
+    CODEC_ID_OPUS,
 
     /* subtitle codecs */
     CODEC_ID_FIRST_SUBTITLE = 0x17000,          ///< A dummy ID pointing at the start of subtitle codecs.
