@@ -178,6 +178,7 @@ External library support:
   --enable-libnut          enable NUT (de)muxing via libnut,
                            native (de)muxer exists [no]
   --enable-libopenjpeg     enable JPEG 2000 decoding via OpenJPEG [no]
+  --enable-libopus         enable Opus decoding support via libopus [no]
   --enable-librtmp         enable RTMP[E] support via librtmp [no]
   --enable-libschroedinger enable Dirac support via libschroedinger [no]
   --enable-libspeex        enable Speex support via libspeex [no]
@@ -944,6 +945,7 @@ CONFIG_LIST="
     libopencore_amrwb
     libopencv
     libopenjpeg
+    libopus
     libpulse
     librtmp
     libschroedinger
@@ -1412,6 +1414,7 @@ libopencore_amrnb_decoder_deps="libopencore_amrnb"
 libopencore_amrnb_encoder_deps="libopencore_amrnb"
 libopencore_amrwb_decoder_deps="libopencore_amrwb"
 libopenjpeg_decoder_deps="libopenjpeg"
+libopus_decoder_deps="libopus"
 libschroedinger_decoder_deps="libschroedinger"
 libschroedinger_encoder_deps="libschroedinger"
 libspeex_decoder_deps="libspeex"
@@ -2911,6 +2914,7 @@ enabled libopencore_amrnb  && require libopencore_amrnb opencore-amrnb/interf_de
 enabled libopencore_amrwb  && require libopencore_amrwb opencore-amrwb/dec_if.h D_IF_init -lopencore-amrwb
 enabled libopencv  && require_pkg_config opencv opencv/cv.h cvCreateImageHeader
 enabled libopenjpeg && require libopenjpeg openjpeg.h opj_version -lopenjpeg
+enabled libopus    && require libopus opus/opus.h opus_get_version_string -lopus
 enabled libpulse && require_pkg_config libpulse-simple pulse/simple.h pa_simple_new
 enabled librtmp    && require_pkg_config librtmp librtmp/rtmp.h RTMP_Socket
 enabled libschroedinger && require_pkg_config schroedinger-1.0 schroedinger/schro.h schro_init
@@ -3207,6 +3211,7 @@ echo "libopencore-amrnb support ${libopencore_amrnb-no}"
 echo "libopencore-amrwb support ${libopencore_amrwb-no}"
 echo "libopencv support         ${libopencv-no}"
 echo "libopenjpeg enabled       ${libopenjpeg-no}"
+echo "libopus enabled           ${libopus-no}"
 echo "libpulse enabled          ${libpulse-no}"
 echo "librtmp enabled           ${librtmp-no}"
 echo "libschroedinger enabled   ${libschroedinger-no}"

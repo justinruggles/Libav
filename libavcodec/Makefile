@@ -572,6 +572,7 @@ OBJS-$(CONFIG_LIBOPENCORE_AMRNB_DECODER)  += libopencore-amr.o
 OBJS-$(CONFIG_LIBOPENCORE_AMRNB_ENCODER)  += libopencore-amr.o
 OBJS-$(CONFIG_LIBOPENCORE_AMRWB_DECODER)  += libopencore-amr.o
 OBJS-$(CONFIG_LIBOPENJPEG_DECODER)        += libopenjpeg.o
+OBJS-$(CONFIG_LIBOPUS_DECODER)            += libopusdec.o vorbis_data.o
 OBJS-$(CONFIG_LIBSCHROEDINGER_DECODER)    += libschroedingerdec.o \
                                              libschroedinger.o    \
                                              libdirac_libschro.o
