@@ -493,22 +493,31 @@ static int ea_read_packet(AVFormatContext *s,
                 num_samples = avio_rl32(pb);
                 avio_skip(pb, 8);
                 chunk_size -= 12;
+            } else if (ea->audio_codec == CODEC_ID_ADPCM_EA    ||
+                       ea->audio_codec == CODEC_ID_ADPCM_EA_R1 ||
+                       ea->audio_codec == CODEC_ID_ADPCM_EA_R2 ||
+                       ea->audio_codec == CODEC_ID_ADPCM_IMA_EA_EACS) {
+                num_samples = avio_rl32(pb);
+                avio_seek(pb, -4, SEEK_CUR);
+            } else if (ea->audio_codec == CODEC_ID_ADPCM_EA_R3) {
+                num_samples = avio_rb32(pb);
+                avio_seek(pb, -4, SEEK_CUR);
+            } else if (ea->audio_codec == CODEC_ID_ADPCM_IMA_EA_SEAD) {
+                num_samples = chunk_size * 2 / ea->num_channels;
             }
             ret = av_get_packet(pb, pkt, chunk_size);
             if (ret < 0)
                 return ret;
             pkt->stream_index = ea->audio_stream_index;
-            pkt->pts = 90000;
-            pkt->pts *= ea->audio_frame_counter;
-            pkt->pts /= ea->sample_rate;
+            pkt->pts = ea->audio_frame_counter;
 
             switch (ea->audio_codec) {
             case CODEC_ID_ADPCM_EA:
-                /* 2 samples/byte, 1 or 2 samples per frame depending
-                 * on stereo; chunk also has 12-byte header */
-                ea->audio_frame_counter += ((chunk_size - 12) * 2) /
-                    ea->num_channels;
-                break;
+            case CODEC_ID_ADPCM_EA_R1:
+            case CODEC_ID_ADPCM_EA_R2:
+            case CODEC_ID_ADPCM_EA_R3:
+            case CODEC_ID_ADPCM_IMA_EA_EACS:
+            case CODEC_ID_ADPCM_IMA_EA_SEAD:
             case CODEC_ID_PCM_S16LE_PLANAR:
             case CODEC_ID_MP3:
                 ea->audio_frame_counter += num_samples;
