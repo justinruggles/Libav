@@ -56,6 +56,7 @@ typedef struct StrChannel {
 
     /* audio parameters */
     int audio_stream_index;
+    int64_t next_audio_pts;
 } StrChannel;
 
 typedef struct StrDemuxContext {
@@ -224,12 +225,18 @@ static int str_read_packet(AVFormatContext *s,
             //    st->codec->bit_rate = 0; //FIXME;
                 st->codec->block_align = 128;
 
-                avpriv_set_pts_info(st, 64, 128, st->codec->sample_rate);
+                avpriv_set_pts_info(st, 64, 18 * 224 / st->codec->channels,
+                                    st->codec->sample_rate);
+                str->channels[channel].next_audio_pts = 0;
             }
             pkt = ret_pkt;
             if (av_new_packet(pkt, 2304))
                 return AVERROR(EIO);
             memcpy(pkt->data,sector+24,2304);
+
+            pkt->duration = 1;
+            pkt->pts = str->channels[channel].next_audio_pts;
+            str->channels[channel].next_audio_pts++;
 
             pkt->stream_index =
                 str->channels[channel].audio_stream_index;
