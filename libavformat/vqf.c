@@ -200,6 +200,7 @@ static int vqf_read_header(AVFormatContext *s)
                st->codec->sample_rate, st->codec->bit_rate);
         return -1;
     }
+    st->codec->frame_size = size;
     c->frame_bit_len = st->codec->bit_rate*size/st->codec->sample_rate;
     avpriv_set_pts_info(st, 64, 1, st->codec->sample_rate);
 
