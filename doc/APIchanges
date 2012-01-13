@@ -13,6 +13,9 @@ libavutil:   2011-04-18
 
 API changes, most recent first:
 
+2012-xx-xx - xxxxxxx - lavc 54.01.0
+  Add duration field to AVCodecParserContext
+
 2012-02-01 - xxxxxxx - lavc 54.01.0
   Add av_fast_padded_malloc() as alternative for av_realloc() when aligned
   memory is required. The buffer will always have FF_INPUT_BUFFER_PADDING_SIZE
