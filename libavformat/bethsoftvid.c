@@ -34,6 +34,8 @@
 
 #define BVID_PALETTE_SIZE 3 * 256
 
+#define DEFAULT_SAMPLE_RATE 11111
+
 typedef struct BVID_DemuxContext
 {
     int nframes;
@@ -42,9 +44,10 @@ typedef struct BVID_DemuxContext
      * to free, unofficial documentation) */
     int bethsoft_global_delay;
 
-    /** video presentation time stamp.
-     * delay = 16 milliseconds * (global_delay + per_frame_delay) */
-    int video_pts;
+    int video_pts;          /**< video time stamp */
+    int video_index;        /**< video stream index */
+    int audio_index;        /**< audio stream index */
+
     uint8_t *palette;
 
     int is_finished;
@@ -76,6 +79,7 @@ static int vid_read_header(AVFormatContext *s)
     stream = avformat_new_stream(s, NULL);
     if (!stream)
         return AVERROR(ENOMEM);
+    vid->video_index = stream->index;
     avpriv_set_pts_info(stream, 32, 1, 60);     // 16 ms increments, i.e. 60 fps
     stream->codec->codec_type = AVMEDIA_TYPE_VIDEO;
     stream->codec->codec_id = CODEC_ID_BETHSOFTVID;
@@ -85,16 +89,9 @@ static int vid_read_header(AVFormatContext *s)
     vid->bethsoft_global_delay = avio_rl16(pb);
     avio_rl16(pb);
 
-    // done with video codec, set up audio codec
-    stream = avformat_new_stream(s, NULL);
-    if (!stream)
-        return AVERROR(ENOMEM);
-    stream->codec->codec_type = AVMEDIA_TYPE_AUDIO;
-    stream->codec->codec_id = CODEC_ID_PCM_U8;
-    stream->codec->channels = 1;
-    stream->codec->sample_rate = 11025;
-    stream->codec->bits_per_coded_sample = 8;
-    stream->codec->bit_rate = stream->codec->channels * stream->codec->sample_rate * stream->codec->bits_per_coded_sample;
+    // wait until the first audio packet to create the audio stream
+    vid->audio_index = -1;
+    s->ctx_flags |= AVFMTCTX_NOHEADER;
 
     return 0;
 }
@@ -121,6 +118,7 @@ static int read_frame(BVID_DemuxContext *vid, AVIOContext *pb, AVPacket *pkt,
     vidbuf_start[vidbuf_nbytes++] = block_type;
 
     // get the video delay (next int16), and set the presentation time
+    // duration = approx. 16 ms * (global_delay + per_frame_delay)
     duration = vid->bethsoft_global_delay + avio_rl16(pb);
 
     // set the y offset if it exists (decoder header data should be in data section)
@@ -170,7 +168,7 @@ static int read_frame(BVID_DemuxContext *vid, AVIOContext *pb, AVPacket *pkt,
     av_free(vidbuf_start);
 
     pkt->pos = position;
-    pkt->stream_index = 0;  // use the video decoder, which was initialized as the first stream
+    pkt->stream_index = vid->video_index;
     pkt->duration = duration;
     pkt->pts = vid->video_pts;
     vid->video_pts += duration;
@@ -198,7 +196,7 @@ static int vid_read_packet(AVFormatContext *s,
     BVID_DemuxContext *vid = s->priv_data;
     AVIOContext *pb = s->pb;
     unsigned char block_type;
-    int audio_length;
+    int audio_length, sample_rate = DEFAULT_SAMPLE_RATE;
     int ret_value;
 
     if(vid->is_finished || pb->eof_reached)
@@ -223,9 +221,22 @@ static int vid_read_packet(AVFormatContext *s,
         case FIRST_AUDIO_BLOCK:
             avio_rl16(pb);
             // soundblaster DAC used for sample rate, as on specification page (link above)
-            s->streams[1]->codec->sample_rate = 1000000 / (256 - avio_r8(pb));
-            s->streams[1]->codec->bit_rate = s->streams[1]->codec->channels * s->streams[1]->codec->sample_rate * s->streams[1]->codec->bits_per_coded_sample;
+            sample_rate = 1000000 / (256 - avio_r8(pb));
         case AUDIO_BLOCK:
+            if (vid->audio_index < 0) {
+                AVStream *st = avformat_new_stream(s, NULL);
+                if (!st)
+                    return AVERROR(ENOMEM);
+                vid->audio_index                 = st->index;
+                st->codec->codec_type            = AVMEDIA_TYPE_AUDIO;
+                st->codec->codec_id              = CODEC_ID_PCM_U8;
+                st->codec->channels              = 1;
+                st->codec->bits_per_coded_sample = 8;
+                st->codec->sample_rate           = sample_rate;
+                st->codec->bit_rate              = 8 * st->codec->sample_rate;
+                st->start_time                   = 0;
+                avpriv_set_pts_info(st, 64, 1, st->codec->sample_rate);
+            }
             audio_length = avio_rl16(pb);
             if ((ret_value = av_get_packet(pb, pkt, audio_length)) != audio_length) {
                 if (ret_value < 0)
@@ -233,7 +244,8 @@ static int vid_read_packet(AVFormatContext *s,
                 av_log(s, AV_LOG_ERROR, "incomplete audio block\n");
                 return AVERROR(EIO);
             }
-            pkt->stream_index = 1;
+            pkt->stream_index = vid->audio_index;
+            pkt->duration     = audio_length;
             pkt->flags |= AV_PKT_FLAG_KEY;
             return 0;
 
