@@ -80,7 +80,7 @@ static int vid_read_header(AVFormatContext *s)
     if (!stream)
         return AVERROR(ENOMEM);
     vid->video_index = stream->index;
-    avpriv_set_pts_info(stream, 32, 1, 60);     // 16 ms increments, i.e. 60 fps
+    avpriv_set_pts_info(stream, 64, 185, DEFAULT_SAMPLE_RATE);
     stream->codec->codec_type = AVMEDIA_TYPE_VIDEO;
     stream->codec->codec_id = CODEC_ID_BETHSOFTVID;
     stream->codec->width = avio_rl16(pb);
@@ -236,6 +236,8 @@ static int vid_read_packet(AVFormatContext *s,
                 st->codec->bit_rate              = 8 * st->codec->sample_rate;
                 st->start_time                   = 0;
                 avpriv_set_pts_info(st, 64, 1, st->codec->sample_rate);
+                avpriv_set_pts_info(s->streams[vid->video_index], 64, 185,
+                                    st->codec->sample_rate);
             }
             audio_length = avio_rl16(pb);
             if ((ret_value = av_get_packet(pb, pkt, audio_length)) != audio_length) {
