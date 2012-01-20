@@ -143,7 +143,7 @@ FATE_TESTS += fate-mpeg2-field-enc
 fate-mpeg2-field-enc: CMD = framecrc -flags +bitexact -dct fastint -idct simple -i $(SAMPLES)/mpeg2/mpeg2_field_encoding.ts -an
 
 FATE_TESTS += fate-nuv
-fate-nuv: CMD = framecrc -idct simple -i $(SAMPLES)/nuv/Today.nuv -vsync 0
+fate-nuv: CMD = framecrc -idct simple -i $(SAMPLES)/nuv/Today.nuv -vsync 0 -an
 
 FATE_TESTS += fate-qpeg
 fate-qpeg: CMD = framecrc -i $(SAMPLES)/qpeg/Clock.avi -an -pix_fmt rgb24
