@@ -193,7 +193,8 @@ ReSampleContext *av_audio_resample_init(int output_channels, int input_channels,
 
     if (s->sample_fmt[0] != AV_SAMPLE_FMT_S16) {
         if (!(s->convert_ctx[0] = av_audio_convert_alloc(AV_SAMPLE_FMT_S16,
-                                                         s->sample_fmt[0], 1))) {
+                                                         s->sample_fmt[0],
+                                                         s->input_channels))) {
             av_log(s, AV_LOG_ERROR,
                    "Cannot convert %s sample format to s16 sample format\n",
                    av_get_sample_fmt_name(s->sample_fmt[0]));
@@ -204,7 +205,8 @@ ReSampleContext *av_audio_resample_init(int output_channels, int input_channels,
 
     if (s->sample_fmt[1] != AV_SAMPLE_FMT_S16) {
         if (!(s->convert_ctx[1] = av_audio_convert_alloc(s->sample_fmt[1],
-                                                         AV_SAMPLE_FMT_S16, 1))) {
+                                                         AV_SAMPLE_FMT_S16,
+                                                         s->output_channels))) {
             av_log(s, AV_LOG_ERROR,
                    "Cannot convert s16 sample format to %s sample format\n",
                    av_get_sample_fmt_name(s->sample_fmt[1]));
@@ -241,10 +243,6 @@ int audio_resample(ReSampleContext *s, short *output, short *input, int nb_sampl
     }
 
     if (s->sample_fmt[0] != AV_SAMPLE_FMT_S16) {
-        int istride[1] = { s->sample_size[0] };
-        int ostride[1] = { 2 };
-        const void *ibuf[1] = { input };
-        void       *obuf[1];
         unsigned input_size = nb_samples * s->input_channels * 2;
 
         if (!s->buffer_size[0] || s->buffer_size[0] < input_size) {
@@ -257,10 +255,8 @@ int audio_resample(ReSampleContext *s, short *output, short *input, int nb_sampl
             }
         }
 
-        obuf[0] = s->buffer[0];
-
-        if (av_audio_convert(s->convert_ctx[0], obuf, ostride,
-                             ibuf, istride, nb_samples * s->input_channels) < 0) {
+        if (av_audio_convert(s->convert_ctx[0], (void **)&s->buffer[0],
+                             (const void **)&input, nb_samples) < 0) {
             av_log(s->resample_context, AV_LOG_ERROR,
                    "Audio sample format conversion failed\n");
             return 0;
@@ -337,13 +333,8 @@ int audio_resample(ReSampleContext *s, short *output, short *input, int nb_sampl
     }
 
     if (s->sample_fmt[1] != AV_SAMPLE_FMT_S16) {
-        int istride[1] = { 2 };
-        int ostride[1] = { s->sample_size[1] };
-        const void *ibuf[1] = { output };
-        void       *obuf[1] = { output_bak };
-
-        if (av_audio_convert(s->convert_ctx[1], obuf, ostride,
-                             ibuf, istride, nb_samples1 * s->output_channels) < 0) {
+        if (av_audio_convert(s->convert_ctx[1], (void **)&output_bak,
+                             (const void **)&output, nb_samples1) < 0) {
             av_log(s->resample_context, AV_LOG_ERROR,
                    "Audio sample format convertion failed\n");
             return 0;

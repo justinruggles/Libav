@@ -48,6 +48,14 @@ uint64_t avcodec_guess_channel_layout(int nb_channels, enum CodecID codec_id, co
 struct AVAudioConvert {
     int channels;
     int fmt_pair;
+    enum AVSampleFormat out_fmt;
+    int out_planar;
+    int out_stride;
+    int out_offset;
+    enum AVSampleFormat in_fmt;
+    int in_planar;
+    int in_stride;
+    int in_offset;
 };
 
 AVAudioConvert *av_audio_convert_alloc(enum AVSampleFormat out_fmt,
@@ -55,11 +63,23 @@ AVAudioConvert *av_audio_convert_alloc(enum AVSampleFormat out_fmt,
                                        int channels)
 {
     AVAudioConvert *ctx;
+    int isize, osize;
     ctx = av_malloc(sizeof(AVAudioConvert));
     if (!ctx)
         return NULL;
     ctx->channels = channels;
-    ctx->fmt_pair = out_fmt + AV_SAMPLE_FMT_NB*in_fmt;
+    ctx->fmt_pair   = av_get_alt_sample_fmt(out_fmt, 0) +
+                      av_get_alt_sample_fmt( in_fmt, 0) * AV_SAMPLE_FMT_NB;
+    ctx->out_fmt    = out_fmt;
+    ctx->in_fmt     = in_fmt;
+    ctx->out_planar = av_sample_fmt_is_planar(out_fmt);
+    ctx->in_planar  = av_sample_fmt_is_planar(in_fmt);
+    osize           = av_get_bytes_per_sample(ctx->out_fmt);
+    isize           = av_get_bytes_per_sample(ctx->in_fmt);
+    ctx->out_stride = osize * (ctx->out_planar ? 1 : ctx->channels);
+    ctx->in_stride  = isize * (ctx->in_planar  ? 1 : ctx->channels);
+    ctx->out_offset = !ctx->out_planar * osize;
+    ctx->in_offset  = !ctx->in_planar  * isize;
     return ctx;
 }
 
@@ -69,21 +89,26 @@ void av_audio_convert_free(AVAudioConvert *ctx)
 }
 
 int av_audio_convert(AVAudioConvert *ctx,
-                           void * const out[6], const int out_stride[6],
-                     const void * const  in[6], const int  in_stride[6], int len)
+                           void * const *out,
+                     const void * const  *in, int nb_samples)
 {
     int ch;
 
     //FIXME optimize common cases
 
+    const int is         = ctx->in_stride;
+    const int os         = ctx->out_stride;
+    const int in_offset  = ctx->in_offset;
+    const int out_offset = ctx->out_offset;
+
     for (ch = 0; ch < ctx->channels; ch++) {
-        const int is=  in_stride[ch];
-        const int os= out_stride[ch];
-        const uint8_t *pi=  in[ch];
-        uint8_t *po= out[ch];
-        uint8_t *end= po + os*len;
-        if(!out[ch])
-            continue;
+        const uint8_t *pi =  in[ctx->in_planar  * ch];
+        uint8_t *po       = out[ctx->out_planar * ch];
+        uint8_t *end;
+
+        pi += ch * in_offset;
+        po += ch * out_offset;
+        end = po + os * nb_samples;
 
 #define CONV(ofmt, otype, ifmt, expr)\
 if(ctx->fmt_pair == ofmt + AV_SAMPLE_FMT_NB*ifmt){\

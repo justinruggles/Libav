@@ -2048,7 +2048,8 @@ static int audio_decode_frame(VideoState *is, double *pts_ptr)
                 if (is->reformat_ctx)
                     av_audio_convert_free(is->reformat_ctx);
                 is->reformat_ctx= av_audio_convert_alloc(AV_SAMPLE_FMT_S16,
-                                                         dec->sample_fmt, 1);
+                                                         dec->sample_fmt,
+                                                         dec->channels);
                 if (!is->reformat_ctx) {
                     fprintf(stderr, "Cannot convert %s sample format to %s sample format\n",
                         av_get_sample_fmt_name(dec->sample_fmt),
@@ -2059,24 +2060,23 @@ static int audio_decode_frame(VideoState *is, double *pts_ptr)
             }
 
             if (is->reformat_ctx) {
-                const void *ibuf[6] = { is->frame->data[0] };
-                void *obuf[6];
-                int istride[6] = { av_get_bytes_per_sample(dec->sample_fmt) };
-                int ostride[6] = { 2 };
-                int len= data_size/istride[0];
-                obuf[0] = av_realloc(is->audio_buf1, FFALIGN(len * ostride[0], 32));
-                if (!obuf[0]) {
+                void *obuf;
+                int isize      = av_get_bytes_per_sample(dec->sample_fmt);
+                int osize      = av_get_bytes_per_sample(AV_SAMPLE_FMT_S16);
+                int nb_samples = data_size / (isize * dec->channels);
+                obuf = av_realloc(is->audio_buf1,
+                                  FFALIGN(nb_samples * osize * dec->channels, 32));
+                if (!obuf)
                     return AVERROR(ENOMEM);
-                }
-                is->audio_buf1 = obuf[0];
-                if (av_audio_convert(is->reformat_ctx, obuf, ostride, ibuf, istride, len) < 0) {
+                is->audio_buf1 = obuf;
+                if (av_audio_convert(is->reformat_ctx, &obuf,
+                                     (const void * const*)is->frame->extended_data,
+                                     nb_samples) < 0) {
                     printf("av_audio_convert() failed\n");
                     break;
                 }
                 is->audio_buf = is->audio_buf1;
-                /* FIXME: existing code assume that data_size equals framesize*channels*2
-                          remove this legacy cruft */
-                data_size = len * 2;
+                data_size = nb_samples * osize * dec->channels;
             } else {
                 is->audio_buf = is->frame->data[0];
             }

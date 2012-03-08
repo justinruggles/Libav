@@ -1085,7 +1085,7 @@ need_realloc:
         if (ost->reformat_ctx)
             av_audio_convert_free(ost->reformat_ctx);
         ost->reformat_ctx = av_audio_convert_alloc(enc->sample_fmt,
-                                                   dec->sample_fmt, 1);
+                                                   dec->sample_fmt, enc->channels);
         if (!ost->reformat_ctx) {
             av_log(NULL, AV_LOG_FATAL, "Cannot convert %s sample format to %s sample format\n",
                    av_get_sample_fmt_name(dec->sample_fmt),
@@ -1154,19 +1154,16 @@ need_realloc:
     }
 
     if (!ost->audio_resample && dec->sample_fmt != enc->sample_fmt) {
-        const void *ibuf[6] = { buftmp };
-        void *obuf[6]  = { audio_buf };
-        int istride[6] = { isize };
-        int ostride[6] = { osize };
-        int len = size_out / istride[0];
-        if (av_audio_convert(ost->reformat_ctx, obuf, ostride, ibuf, istride, len) < 0) {
+        int nb_samples = size_out / (isize * enc->channels);
+        if (av_audio_convert(ost->reformat_ctx, (void **)&audio_buf,
+                             (const void **)&buftmp, nb_samples) < 0) {
             printf("av_audio_convert() failed\n");
             if (exit_on_error)
                 exit_program(1);
             return;
         }
         buftmp = audio_buf;
-        size_out = len * osize;
+        size_out = nb_samples * osize * enc->channels;
     }
 
     /* now encode as many frames as possible */
