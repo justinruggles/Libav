@@ -1084,8 +1084,8 @@ need_realloc:
         MAKE_SFMT_PAIR(enc->sample_fmt,dec->sample_fmt) != ost->reformat_pair) {
         if (ost->reformat_ctx)
             av_audio_convert_free(ost->reformat_ctx);
-        ost->reformat_ctx = av_audio_convert_alloc(enc->sample_fmt, 1,
-                                                   dec->sample_fmt, 1, NULL, 0);
+        ost->reformat_ctx = av_audio_convert_alloc(enc->sample_fmt,
+                                                   dec->sample_fmt, 1);
         if (!ost->reformat_ctx) {
             av_log(NULL, AV_LOG_FATAL, "Cannot convert %s sample format to %s sample format\n",
                    av_get_sample_fmt_name(dec->sample_fmt),

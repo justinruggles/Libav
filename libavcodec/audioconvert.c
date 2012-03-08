@@ -46,22 +46,19 @@ uint64_t avcodec_guess_channel_layout(int nb_channels, enum CodecID codec_id, co
 }
 
 struct AVAudioConvert {
-    int in_channels, out_channels;
+    int channels;
     int fmt_pair;
 };
 
-AVAudioConvert *av_audio_convert_alloc(enum AVSampleFormat out_fmt, int out_channels,
-                                       enum AVSampleFormat in_fmt, int in_channels,
-                                       const float *matrix, int flags)
+AVAudioConvert *av_audio_convert_alloc(enum AVSampleFormat out_fmt,
+                                       enum AVSampleFormat  in_fmt,
+                                       int channels)
 {
     AVAudioConvert *ctx;
-    if (in_channels!=out_channels)
-        return NULL;  /* FIXME: not supported */
     ctx = av_malloc(sizeof(AVAudioConvert));
     if (!ctx)
         return NULL;
-    ctx->in_channels = in_channels;
-    ctx->out_channels = out_channels;
+    ctx->channels = channels;
     ctx->fmt_pair = out_fmt + AV_SAMPLE_FMT_NB*in_fmt;
     return ctx;
 }
@@ -79,7 +76,7 @@ int av_audio_convert(AVAudioConvert *ctx,
 
     //FIXME optimize common cases
 
-    for(ch=0; ch<ctx->out_channels; ch++){
+    for (ch = 0; ch < ctx->channels; ch++) {
         const int is=  in_stride[ch];
         const int os= out_stride[ch];
         const uint8_t *pi=  in[ch];

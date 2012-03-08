@@ -192,8 +192,8 @@ ReSampleContext *av_audio_resample_init(int output_channels, int input_channels,
     s->sample_size[1] = av_get_bytes_per_sample(s->sample_fmt[1]);
 
     if (s->sample_fmt[0] != AV_SAMPLE_FMT_S16) {
-        if (!(s->convert_ctx[0] = av_audio_convert_alloc(AV_SAMPLE_FMT_S16, 1,
-                                                         s->sample_fmt[0], 1, NULL, 0))) {
+        if (!(s->convert_ctx[0] = av_audio_convert_alloc(AV_SAMPLE_FMT_S16,
+                                                         s->sample_fmt[0], 1))) {
             av_log(s, AV_LOG_ERROR,
                    "Cannot convert %s sample format to s16 sample format\n",
                    av_get_sample_fmt_name(s->sample_fmt[0]));
@@ -203,8 +203,8 @@ ReSampleContext *av_audio_resample_init(int output_channels, int input_channels,
     }
 
     if (s->sample_fmt[1] != AV_SAMPLE_FMT_S16) {
-        if (!(s->convert_ctx[1] = av_audio_convert_alloc(s->sample_fmt[1], 1,
-                                                         AV_SAMPLE_FMT_S16, 1, NULL, 0))) {
+        if (!(s->convert_ctx[1] = av_audio_convert_alloc(s->sample_fmt[1],
+                                                         AV_SAMPLE_FMT_S16, 1))) {
             av_log(s, AV_LOG_ERROR,
                    "Cannot convert s16 sample format to %s sample format\n",
                    av_get_sample_fmt_name(s->sample_fmt[1]));

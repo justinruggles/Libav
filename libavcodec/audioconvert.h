@@ -48,16 +48,13 @@ typedef struct AVAudioConvert AVAudioConvert;
 /**
  * Create an audio sample format converter context
  * @param out_fmt Output sample format
- * @param out_channels Number of output channels
  * @param in_fmt Input sample format
- * @param in_channels Number of input channels
- * @param[in] matrix Channel mixing matrix (of dimension in_channel*out_channels). Set to NULL to ignore.
- * @param flags See AV_CPU_FLAG_xx
+ * @param channels Number of channels
  * @return NULL on error
  */
-AVAudioConvert *av_audio_convert_alloc(enum AVSampleFormat out_fmt, int out_channels,
-                                       enum AVSampleFormat in_fmt, int in_channels,
-                                       const float *matrix, int flags);
+AVAudioConvert *av_audio_convert_alloc(enum AVSampleFormat out_fmt,
+                                       enum AVSampleFormat  in_fmt,
+                                       int channels);
 
 /**
  * Free audio sample format converter context

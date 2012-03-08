@@ -2047,8 +2047,8 @@ static int audio_decode_frame(VideoState *is, double *pts_ptr)
             if (dec->sample_fmt != is->audio_src_fmt) {
                 if (is->reformat_ctx)
                     av_audio_convert_free(is->reformat_ctx);
-                is->reformat_ctx= av_audio_convert_alloc(AV_SAMPLE_FMT_S16, 1,
-                                                         dec->sample_fmt, 1, NULL, 0);
+                is->reformat_ctx= av_audio_convert_alloc(AV_SAMPLE_FMT_S16,
+                                                         dec->sample_fmt, 1);
                 if (!is->reformat_ctx) {
                     fprintf(stderr, "Cannot convert %s sample format to %s sample format\n",
                         av_get_sample_fmt_name(dec->sample_fmt),
