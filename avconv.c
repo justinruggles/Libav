@@ -1145,7 +1145,7 @@ need_realloc:
     if (ost->audio_resample) {
         buftmp = audio_buf;
         size_out = audio_resample(ost->resample,
-                                  (short *)buftmp, (short *)buf,
+                                  (void **)&buftmp, (void **)&buf,
                                   size / (dec->channels * isize));
         size_out = size_out * enc->channels * osize;
     } else {

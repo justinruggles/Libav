@@ -3157,7 +3157,7 @@ ReSampleContext *av_audio_resample_init(int output_channels, int input_channels,
                                         int filter_length, int log2_phase_count,
                                         int linear, double cutoff);
 
-int audio_resample(ReSampleContext *s, short *output, short *input, int nb_samples);
+int audio_resample(ReSampleContext *s, void **output, void **input, int nb_samples);
 
 /**
  * Free resample context.
