@@ -1,4 +1,4 @@
-8168a5c1343553ef027541830f2cb879 *./tests/data/acodec/pcm_s24daud.302
+cfba631e0332ed63b0fff18b6b1dd4ae *./tests/data/acodec/pcm_s24daud.302
 10368730 ./tests/data/acodec/pcm_s24daud.302
-f552afadfdfcd6348a07095da6382de5 *./tests/data/pcm_s24daud.acodec.out.wav
+adb3c8defa4bf1c8d21972c38255d87d *./tests/data/pcm_s24daud.acodec.out.wav
 stddev: 9416.28 PSNR: 16.85 MAXDIFF:42744 bytes:  6911796/  1058400

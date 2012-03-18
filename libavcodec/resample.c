@@ -139,11 +139,11 @@ static void ac3_5p1_mux(short *output, short *input1, short *input2, int n)
         l = *input1++;
         r = *input2++;
         *output++ = l;                  /* left */
-        *output++ = (l / 2) + (r / 2);  /* center */
         *output++ = r;                  /* right */
+        *output++ = (l / 2) + (r / 2);  /* center */
+        *output++ = 0;                  /* low freq */
         *output++ = 0;                  /* left surround */
         *output++ = 0;                  /* right surroud */
-        *output++ = 0;                  /* low freq */
     }
 }
 
