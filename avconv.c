@@ -34,6 +34,7 @@
 #include "libavutil/opt.h"
 #include "libavcodec/audioconvert.h"
 #include "libavutil/audioconvert.h"
+#include "libavutil/audio_fifo.h"
 #include "libavutil/parseutils.h"
 #include "libavutil/samplefmt.h"
 #include "libavutil/colorspace.h"
@@ -142,6 +143,8 @@ static int print_stats = 1;
 
 static uint8_t *audio_buf;
 static unsigned int allocated_audio_buf_size;
+static uint8_t *async_buf;
+static unsigned int allocated_async_buf_size;
 
 #define DEFAULT_PASS_LOGFILENAME_PREFIX "av2pass"
 
@@ -240,7 +243,7 @@ typedef struct OutputStream {
     int resample_sample_rate;
     int reformat_pair;
     AVAudioConvert *reformat_ctx;
-    AVFifoBuffer *fifo;     /* for compression: one audio fifo per codec */
+    AVAudioFifo *fifo;
     FILE *logfile;
 
 #if CONFIG_AVFILTER
@@ -718,6 +721,8 @@ void exit_program(int ret)
     uninit_opts();
     av_free(audio_buf);
     allocated_audio_buf_size = 0;
+    av_free(async_buf);
+    allocated_async_buf_size = 0;
 
 #if CONFIG_AVFILTER
     avfilter_uninit();
@@ -935,55 +940,46 @@ static int check_recording_time(OutputStream *ost)
     return 1;
 }
 
-static void generate_silence(uint8_t* buf, enum AVSampleFormat sample_fmt, size_t size)
+static void generate_silence(uint8_t **buf, enum AVSampleFormat sample_fmt,
+                             int channels, int offset_samples, int nb_samples)
 {
-    int fill_char = 0x00;
+    int fill_char, planes, offset, osize, i;
+    size_t size;
+
+    fill_char = 0x00;
     if (sample_fmt == AV_SAMPLE_FMT_U8)
         fill_char = 0x80;
-    memset(buf, fill_char, size);
+
+    planes = av_sample_fmt_is_planar(sample_fmt) ? channels : 1;
+    osize  = av_get_bytes_per_sample(sample_fmt);
+    offset = offset_samples * osize * (planes == 1 ? channels : 1);
+    size   = nb_samples     * osize * (planes == 1 ? channels : 1);
+
+    for (i = 0; i < planes; i++)
+        memset(buf[i] + offset, fill_char, size);
 }
 
 static int encode_audio_frame(AVFormatContext *s, OutputStream *ost,
-                              const uint8_t *buf, int buf_size)
+                              AVFrame *output_frame)
 {
     AVCodecContext *enc = ost->st->codec;
-    AVFrame *frame = NULL;
     AVPacket pkt;
-    int ret, got_packet;
+    int got_packet;
 
     av_init_packet(&pkt);
     pkt.data = NULL;
     pkt.size = 0;
 
-    if (buf) {
-        if (!ost->output_frame) {
-            ost->output_frame = avcodec_alloc_frame();
-            if (!ost->output_frame) {
-                av_log(NULL, AV_LOG_FATAL, "out-of-memory in encode_audio_frame()\n");
-                exit_program(1);
-            }
-        }
-        frame = ost->output_frame;
-        if (frame->extended_data != frame->data)
-            av_freep(&frame->extended_data);
-        avcodec_get_frame_defaults(frame);
-
-        frame->nb_samples  = buf_size /
-                             (enc->channels * av_get_bytes_per_sample(enc->sample_fmt));
-        if ((ret = avcodec_fill_audio_frame(frame, enc->channels, enc->sample_fmt,
-                                            buf, buf_size, 1)) < 0) {
-            av_log(NULL, AV_LOG_FATAL, "Audio encoding failed\n");
-            exit_program(1);
-        }
-
+    if (output_frame) {
         if (!check_recording_time(ost))
             return 0;
 
-        ost->sync_opts += frame->nb_samples;
+        output_frame->pts = AV_NOPTS_VALUE;
+        ost->sync_opts += output_frame->nb_samples;
     }
 
     got_packet = 0;
-    if (avcodec_encode_audio2(enc, &pkt, frame, &got_packet) < 0) {
+    if (avcodec_encode_audio2(enc, &pkt, output_frame, &got_packet) < 0) {
         av_log(NULL, AV_LOG_FATAL, "Audio encoding failed\n");
         exit_program(1);
     }
@@ -1004,35 +1000,88 @@ static int encode_audio_frame(AVFormatContext *s, OutputStream *ost,
     return pkt.size;
 }
 
+static int alloc_audio_frame(AVFrame **framep, uint8_t **bufp,
+                             int *allocated_buf_size, int channels,
+                             int nb_samples, enum AVSampleFormat sample_fmt)
+{
+    AVFrame *frame;
+    uint8_t *buf;
+    int audio_buf_size, ret;
+
+    /* calculate required buffer size */
+    audio_buf_size = av_samples_get_buffer_size(NULL, channels, nb_samples,
+                                                sample_fmt, 32);
+    if (audio_buf_size < 0)
+        return audio_buf_size;
+
+    /* realloc audio_buf if needed */
+    av_fast_malloc(bufp, allocated_buf_size, audio_buf_size);
+    if (!*bufp)
+        return AVERROR(ENOMEM);
+    buf = *bufp;
+
+    /* allocate and/or initialize output frame */
+    frame = *framep;
+    if (!frame && !(frame = avcodec_alloc_frame())) {
+        return AVERROR(ENOMEM);
+    } else {
+        if (frame->extended_data != frame->data)
+            av_freep(&frame->extended_data);
+        avcodec_get_frame_defaults(frame);
+    }
+
+    frame->nb_samples = nb_samples;
+    if ((ret = avcodec_fill_audio_frame(frame, channels, sample_fmt, buf,
+                                        audio_buf_size, 32)) < 0) {
+        return ret;
+    }
+    *framep = frame;
+
+    return 0;
+}
+
+static int alloc_output_frame(OutputStream *ost, AVCodecContext *dec,
+                              AVCodecContext *enc, int nb_samples)
+{
+    int64_t audio_buf_samples;
+    int ret;
+
+    /* calculate required number of samples to allocate */
+    audio_buf_samples = ((int64_t)nb_samples * enc->sample_rate + dec->sample_rate) /
+                        dec->sample_rate;
+    audio_buf_samples = 4 * audio_buf_samples + 16; // safety factors for resampling
+    audio_buf_samples = FFMAX(audio_buf_samples, enc->frame_size);
+    if (audio_buf_samples > INT_MAX)
+        return AVERROR(EINVAL);
+
+    if ((ret = alloc_audio_frame(&ost->output_frame, &audio_buf,
+                                 &allocated_audio_buf_size, enc->channels,
+                                 audio_buf_samples, enc->sample_fmt)) < 0)
+        return ret;
+    ost->output_frame->nb_samples = 0;
+
+    return 0;
+}
+
+static int alloc_async_frame(InputStream *ist, int nb_samples)
+{
+    AVCodecContext *dec = ist->st->codec;
+
+    return alloc_audio_frame(&ist->filtered_frame, &async_buf,
+                             &allocated_async_buf_size, dec->channels,
+                             nb_samples, dec->sample_fmt);
+}
+
 static void do_audio_out(AVFormatContext *s, OutputStream *ost,
                          InputStream *ist, AVFrame *decoded_frame)
 {
-    uint8_t *buftmp;
-    int64_t audio_buf_size;
+    AVFrame *tmp_frame;
 
-    int size_out, frame_bytes, resample_changed;
+    int resample_changed;
     AVCodecContext *enc = ost->st->codec;
     AVCodecContext *dec = ist->st->codec;
-    int osize = av_get_bytes_per_sample(enc->sample_fmt);
-    int isize = av_get_bytes_per_sample(dec->sample_fmt);
-    uint8_t *buf = decoded_frame->data[0];
-    int size     = decoded_frame->nb_samples * dec->channels * isize;
-    int64_t allocated_for_size = size;
 
-need_realloc:
-    audio_buf_size  = (allocated_for_size + isize * dec->channels - 1) / (isize * dec->channels);
-    audio_buf_size  = (audio_buf_size * enc->sample_rate + dec->sample_rate) / dec->sample_rate;
-    audio_buf_size  = audio_buf_size * 2 + 10000; // safety factors for the deprecated resampling API
-    audio_buf_size  = FFMAX(audio_buf_size, enc->frame_size);
-    audio_buf_size *= osize * enc->channels;
-
-    if (audio_buf_size > INT_MAX) {
-        av_log(NULL, AV_LOG_FATAL, "Buffer sizes too large\n");
-        exit_program(1);
-    }
-
-    av_fast_malloc(&audio_buf, &allocated_audio_buf_size, audio_buf_size);
-    if (!audio_buf) {
+    if (alloc_output_frame(ost, dec, enc, decoded_frame->nb_samples) < 0) {
         av_log(NULL, AV_LOG_FATAL, "Out of memory in do_audio_out\n");
         exit_program(1);
     }
@@ -1097,38 +1146,58 @@ need_realloc:
 
     if (audio_sync_method) {
         double delta = get_sync_ipts(ost, ist->last_dts) * enc->sample_rate - ost->sync_opts -
-                       av_fifo_size(ost->fifo) / (enc->channels * osize);
-        int idelta = delta * dec->sample_rate / enc->sample_rate;
-        int byte_delta = idelta * isize * dec->channels;
+                       av_audio_fifo_size(ost->fifo);
 
         // FIXME resample delay
         if (fabs(delta) > 50) {
             if (ist->is_start || fabs(delta) > audio_drift_threshold*enc->sample_rate) {
-                if (byte_delta < 0) {
-                    byte_delta = FFMAX(byte_delta, -size);
-                    size += byte_delta;
-                    buf  -= byte_delta;
+                AVAudioFifo *async_fifo;
+                int idelta = delta * dec->sample_rate / enc->sample_rate;
+                int out_samples = decoded_frame->nb_samples + idelta;
+
+                if (out_samples <= 0)
+                    return;
+                ist->is_start = 0;
+
+                if (alloc_async_frame(ist, out_samples) < 0) {
+                    av_log(NULL, AV_LOG_FATAL, "Out of memory in do_audio_out\n");
+                    exit_program(1);
+                }
+                if (alloc_output_frame(ost, dec, enc, out_samples) < 0) {
+                    av_log(NULL, AV_LOG_FATAL, "Out of memory in do_audio_out\n");
+                    exit_program(1);
+                }
+                async_fifo = av_audio_fifo_alloc(dec->sample_fmt, dec->channels,
+                                                 out_samples);
+                if (!async_fifo) {
+                    av_log(NULL, AV_LOG_FATAL, "Out of memory in do_audio_out\n");
+                    exit_program(1);
+                }
+
+                if (idelta < 0) {
+                    av_audio_fifo_write(async_fifo,
+                                        (void **)decoded_frame->extended_data,
+                                        decoded_frame->nb_samples);
+                    av_audio_fifo_drain(async_fifo, -idelta);
                     av_log(NULL, AV_LOG_VERBOSE, "discarding %d audio samples\n",
-                           -byte_delta / (isize * dec->channels));
-                    if (!size)
-                        return;
-                    ist->is_start = 0;
+                           -idelta);
                 } else {
-                    static uint8_t *input_tmp = NULL;
-                    input_tmp = av_realloc(input_tmp, byte_delta + size);
-
-                    if (byte_delta > allocated_for_size - size) {
-                        allocated_for_size = byte_delta + (int64_t)size;
-                        goto need_realloc;
-                    }
-                    ist->is_start = 0;
-
-                    generate_silence(input_tmp, dec->sample_fmt, byte_delta);
-                    memcpy(input_tmp + byte_delta, buf, size);
-                    buf = input_tmp;
-                    size += byte_delta;
+                    generate_silence(ist->filtered_frame->extended_data,
+                                     dec->sample_fmt, dec->channels,
+                                     0, idelta);
+                    av_audio_fifo_write(async_fifo,
+                                        (void **)ist->filtered_frame->extended_data,
+                                        idelta);
+                    av_audio_fifo_write(async_fifo,
+                                        (void **)decoded_frame->extended_data,
+                                        decoded_frame->nb_samples);
                     av_log(NULL, AV_LOG_VERBOSE, "adding %d audio samples of silence\n", idelta);
                 }
+                av_audio_fifo_read(async_fifo,
+                                   (void **)ist->filtered_frame->extended_data,
+                                   out_samples);
+                av_audio_fifo_free(async_fifo);
+                decoded_frame = ist->filtered_frame;
             } else if (audio_sync_method > 1) {
                 int comp = av_clip(delta, -audio_sync_method, audio_sync_method);
                 av_assert0(ost->audio_resample);
@@ -1140,49 +1209,50 @@ need_realloc:
         }
     } else
         ost->sync_opts = lrintf(get_sync_ipts(ost, ist->last_dts) * enc->sample_rate) -
-                                av_fifo_size(ost->fifo) / (enc->channels * osize); // FIXME wrong
+                                av_audio_fifo_size(ost->fifo); // FIXME wrong
 
     if (ost->audio_resample) {
-        buftmp = audio_buf;
-        size_out = audio_resample(ost->resample,
-                                  (void **)&buftmp, (void **)&buf,
-                                  size / (dec->channels * isize));
-        size_out = size_out * enc->channels * osize;
+        int out_samples = audio_resample2(ost->resample,
+                                          (void **)ost->output_frame->extended_data,
+                                          (void **)decoded_frame->extended_data,
+                                          decoded_frame->nb_samples);
+        tmp_frame = ost->output_frame;
+        tmp_frame->nb_samples = out_samples;
     } else {
-        buftmp = buf;
-        size_out = size;
+        tmp_frame = decoded_frame;
     }
 
     if (!ost->audio_resample && dec->sample_fmt != enc->sample_fmt) {
-        int nb_samples = size_out / (isize * enc->channels);
-        if (av_audio_convert(ost->reformat_ctx, (void **)&audio_buf,
-                             (const void **)&buftmp, nb_samples) < 0) {
+        if (av_audio_convert(ost->reformat_ctx,
+                             (void **)ost->output_frame->extended_data,
+                             (const void **)tmp_frame->extended_data,
+                             tmp_frame->nb_samples) < 0) {
             printf("av_audio_convert() failed\n");
             if (exit_on_error)
                 exit_program(1);
             return;
         }
-        buftmp = audio_buf;
-        size_out = nb_samples * osize * enc->channels;
+        ost->output_frame->nb_samples = tmp_frame->nb_samples;
+        tmp_frame = ost->output_frame;
     }
 
     /* now encode as many frames as possible */
     if (!(enc->codec->capabilities & CODEC_CAP_VARIABLE_FRAME_SIZE)) {
-        /* output resampled raw samples */
-        if (av_fifo_realloc2(ost->fifo, av_fifo_size(ost->fifo) + size_out) < 0) {
-            av_log(NULL, AV_LOG_FATAL, "av_fifo_realloc2() failed\n");
+        if (av_audio_fifo_write(ost->fifo, (void **)tmp_frame->extended_data,
+                                tmp_frame->nb_samples) != tmp_frame->nb_samples) {
+            av_log(NULL, AV_LOG_FATAL, "writing to audio FIFO failed\n");
             exit_program(1);
         }
-        av_fifo_generic_write(ost->fifo, buftmp, size_out, NULL);
 
-        frame_bytes = enc->frame_size * osize * enc->channels;
-
-        while (av_fifo_size(ost->fifo) >= frame_bytes) {
-            av_fifo_generic_read(ost->fifo, audio_buf, frame_bytes, NULL);
-            encode_audio_frame(s, ost, audio_buf, frame_bytes);
+        while (av_audio_fifo_size(ost->fifo) >= enc->frame_size) {
+            av_audio_fifo_read(ost->fifo,
+                               (void **)ost->output_frame->extended_data,
+                               enc->frame_size);
+            ost->output_frame->nb_samples = enc->frame_size;
+            encode_audio_frame(s, ost, ost->output_frame);
         }
     } else {
-        encode_audio_frame(s, ost, buftmp, size_out);
+        encode_audio_frame(s, ost, tmp_frame);
     }
 }
 
@@ -1676,33 +1746,42 @@ static void flush_encoders(OutputStream *ost_table, int nb_ostreams)
 
         for (;;) {
             AVPacket pkt;
-            int fifo_bytes, got_packet;
+            int fifo_samples, got_packet;
             av_init_packet(&pkt);
             pkt.data = NULL;
             pkt.size = 0;
 
             switch (ost->st->codec->codec_type) {
             case AVMEDIA_TYPE_AUDIO:
-                fifo_bytes = av_fifo_size(ost->fifo);
-                if (fifo_bytes > 0) {
+                fifo_samples = av_audio_fifo_size(ost->fifo);
+                if (fifo_samples > 0) {
                     /* encode any samples remaining in fifo */
+                    int osize = av_get_bytes_per_sample(enc->sample_fmt);
+                    int fifo_bytes = fifo_samples * enc->channels * osize;
                     int frame_bytes = fifo_bytes;
+                    int frame_samples = fifo_samples;
 
-                    av_fifo_generic_read(ost->fifo, audio_buf, fifo_bytes, NULL);
+                    av_audio_fifo_read(ost->fifo,
+                                       (void **)ost->output_frame->extended_data,
+                                       fifo_samples);
 
                     /* pad last frame with silence if needed */
                     if (!(enc->codec->capabilities & CODEC_CAP_SMALL_LAST_FRAME)) {
-                        frame_bytes = enc->frame_size * enc->channels *
-                                      av_get_bytes_per_sample(enc->sample_fmt);
+                        frame_samples = enc->frame_size;
+                        frame_bytes = enc->frame_size * enc->channels * osize;
                         if (allocated_audio_buf_size < frame_bytes)
                             exit_program(1);
-                        generate_silence(audio_buf+fifo_bytes, enc->sample_fmt, frame_bytes - fifo_bytes);
+                        generate_silence(ost->output_frame->extended_data,
+                                         enc->sample_fmt,
+                                         enc->channels, fifo_samples,
+                                         frame_samples - fifo_samples);
                     }
-                    encode_audio_frame(os, ost, audio_buf, frame_bytes);
+                    ost->output_frame->nb_samples = frame_samples;
+                    encode_audio_frame(os, ost, ost->output_frame);
                 } else {
                     /* flush encoder with NULL frames until it is done
                        returning packets */
-                    if (encode_audio_frame(os, ost, NULL, 0) == 0) {
+                    if (encode_audio_frame(os, ost, NULL) == 0) {
                         stop_encoding = 1;
                         break;
                     }
@@ -2375,10 +2454,6 @@ static int transcode_init(OutputFile *output_files,
 
             switch (codec->codec_type) {
             case AVMEDIA_TYPE_AUDIO:
-                ost->fifo = av_fifo_alloc(1024);
-                if (!ost->fifo) {
-                    return AVERROR(ENOMEM);
-                }
                 ost->reformat_pair = MAKE_SFMT_PAIR(AV_SAMPLE_FMT_NONE,AV_SAMPLE_FMT_NONE);
 
                 if (!codec->sample_rate)
@@ -2395,6 +2470,11 @@ static int transcode_init(OutputFile *output_files,
                 codec->channel_layout = icodec->channel_layout;
                 if (av_get_channel_layout_nb_channels(codec->channel_layout) != codec->channels)
                     codec->channel_layout = 0;
+
+                ost->fifo = av_audio_fifo_alloc(codec->sample_fmt,
+                                                codec->channels, 1024);
+                if (!ost->fifo)
+                    return AVERROR(ENOMEM);
 
                 ost->audio_resample       = codec-> sample_rate != icodec->sample_rate || audio_sync_method > 1;
                 icodec->request_channels  = codec-> channels;
@@ -2863,8 +2943,7 @@ static int transcode(OutputFile *output_files,
                     fclose(ost->logfile);
                     ost->logfile = NULL;
                 }
-                av_fifo_free(ost->fifo); /* works even if fifo is not
-                                             initialized but set to zero */
+                av_audio_fifo_free(ost->fifo);
                 av_freep(&ost->st->codec->subtitle_header);
                 av_free(ost->pict_tmp.data[0]);
                 av_free(ost->forced_kf_pts);

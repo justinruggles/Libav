@@ -177,7 +177,8 @@ ReSampleContext *av_audio_resample_init(int output_channels, int input_channels,
 
 /* resample audio. 'nb_samples' is the number of input samples */
 /* XXX: optimize it ! */
-int audio_resample(ReSampleContext *s, void **output, void **input, int in_samples)
+int audio_resample2(ReSampleContext *s, void **output, void **input,
+                    int in_samples)
 {
     int i, nb_samples1;
     int16_t *s16p_buf[MAX_CHANNELS];
@@ -188,14 +189,15 @@ int audio_resample(ReSampleContext *s, void **output, void **input, int in_sampl
     if (s->sample_fmt[0] != AV_SAMPLE_FMT_S16P || s->filter_channels < s->input_channels) {
         unsigned input_size = in_samples * s->input_channels * 2;
 
-        if (!s->buffer_size[0] || s->buffer_size[0] < input_size) {
+        if (s->buffer_size[0] < input_size) {
             av_free(s->buffer[0]);
-            s->buffer_size[0] = input_size;
-            s->buffer[0] = av_malloc(s->buffer_size[0]);
+            s->buffer_size[0] = 0;
+            s->buffer[0] = av_malloc(input_size);
             if (!s->buffer[0]) {
                 av_log(s->resample_context, AV_LOG_ERROR, "Could not allocate buffer\n");
                 return 0;
             }
+            s->buffer_size[0] = input_size;
         }
 
         for (i = 0; i < s->input_channels; i++)
@@ -229,14 +231,15 @@ int audio_resample(ReSampleContext *s, void **output, void **input, int in_sampl
         int out_size = out_samples * av_get_bytes_per_sample(s->sample_fmt[1]) *
                        s->output_channels;
 
-        if (!s->buffer_size[1] || s->buffer_size[1] < out_size) {
+        if (s->buffer_size[1] < out_size) {
             av_free(s->buffer[1]);
-            s->buffer_size[1] = out_size;
-            s->buffer[1] = av_mallocz(s->buffer_size[1]);
+            s->buffer_size[1] = 0;
+            s->buffer[1] = av_mallocz(out_size);
             if (!s->buffer[1]) {
                 av_log(s->resample_context, AV_LOG_ERROR, "Could not allocate buffer\n");
                 return 0;
             }
+            s->buffer_size[1] = out_size;
         }
 
         for (i = 0; i < s->output_channels; i++)
@@ -301,6 +304,20 @@ int audio_resample(ReSampleContext *s, void **output, void **input, int in_sampl
 
     return out_samples;
 }
+
+#ifdef FF_API_AUDIO_RESAMPLE
+int audio_resample(ReSampleContext *s, short *output, short *input,
+                   int nb_samples)
+{
+    if (av_sample_fmt_is_planar(s->sample_fmt[0]) ||
+        av_sample_fmt_is_planar(s->sample_fmt[1])) {
+        av_log(s->resample_context, AV_LOG_ERROR, "Cannot use audio_resample() "
+               "with planar sample formats\n");
+        return AVERROR(EINVAL);
+    }
+    return audio_resample2(s, (void **)&output, (void **)&input, nb_samples);
+}
+#endif
 
 void audio_resample_close(ReSampleContext *s)
 {

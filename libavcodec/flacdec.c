@@ -108,8 +108,6 @@ static av_cold int flac_decode_init(AVCodecContext *avctx)
     FLACContext *s = avctx->priv_data;
     s->avctx = avctx;
 
-    avctx->sample_fmt = AV_SAMPLE_FMT_S16;
-
     /* for now, the raw FLAC header is allowed to be passed to the decoder as
        frame data instead of extradata. */
     if (!avctx->extradata)
@@ -121,9 +119,9 @@ static av_cold int flac_decode_init(AVCodecContext *avctx)
     /* initialize based on the demuxer-supplied streamdata header */
     avpriv_flac_parse_streaminfo(avctx, (FLACStreaminfo *)s, streaminfo);
     if (s->bps > 16)
-        avctx->sample_fmt = AV_SAMPLE_FMT_S32;
+        avctx->sample_fmt = AV_SAMPLE_FMT_S32P;
     else
-        avctx->sample_fmt = AV_SAMPLE_FMT_S16;
+        avctx->sample_fmt = AV_SAMPLE_FMT_S16P;
     allocate_buffers(s);
     s->got_streaminfo = 1;
 
@@ -515,11 +513,11 @@ static int decode_frame(FLACContext *s)
     s->bps = s->avctx->bits_per_raw_sample = fi.bps;
 
     if (s->bps > 16) {
-        s->avctx->sample_fmt = AV_SAMPLE_FMT_S32;
+        s->avctx->sample_fmt = AV_SAMPLE_FMT_S32P;
         s->sample_shift = 32 - s->bps;
         s->is32 = 1;
     } else {
-        s->avctx->sample_fmt = AV_SAMPLE_FMT_S16;
+        s->avctx->sample_fmt = AV_SAMPLE_FMT_S16P;
         s->sample_shift = 16 - s->bps;
         s->is32 = 0;
     }
@@ -575,8 +573,8 @@ static int flac_decode_frame(AVCodecContext *avctx, void *data,
     int buf_size = avpkt->size;
     FLACContext *s = avctx->priv_data;
     int i, j = 0, bytes_read = 0;
-    int16_t *samples_16;
-    int32_t *samples_32;
+    int16_t **samples_16;
+    int32_t **samples_32;
     int ret;
 
     *got_frame_ptr = 0;
@@ -616,8 +614,8 @@ static int flac_decode_frame(AVCodecContext *avctx, void *data,
         av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
         return ret;
     }
-    samples_16 = (int16_t *)s->frame.data[0];
-    samples_32 = (int32_t *)s->frame.data[0];
+    samples_16 = (int16_t **)s->frame.extended_data;
+    samples_32 = (int32_t **)s->frame.extended_data;
 
 #define DECORRELATE(left, right)\
             assert(s->channels == 2);\
@@ -625,32 +623,33 @@ static int flac_decode_frame(AVCodecContext *avctx, void *data,
                 int a= s->decoded[0][i];\
                 int b= s->decoded[1][i];\
                 if (s->is32) {\
-                    *samples_32++ = (left)  << s->sample_shift;\
-                    *samples_32++ = (right) << s->sample_shift;\
+                    samples_32[0][i] = (left)  << s->sample_shift;\
+                    samples_32[1][i] = (right) << s->sample_shift;\
                 } else {\
-                    *samples_16++ = (left)  << s->sample_shift;\
-                    *samples_16++ = (right) << s->sample_shift;\
+                    samples_16[0][i] = (left)  << s->sample_shift;\
+                    samples_16[1][i] = (right) << s->sample_shift;\
                 }\
             }\
             break;
 
-    switch (s->ch_mode) {
-    case FLAC_CHMODE_INDEPENDENT:
+    if (s->ch_mode == FLAC_CHMODE_INDEPENDENT) {
         for (j = 0; j < s->blocksize; j++) {
             for (i = 0; i < s->channels; i++) {
                 if (s->is32)
-                    *samples_32++ = s->decoded[i][j] << s->sample_shift;
+                    samples_32[i][j] = s->decoded[i][j] << s->sample_shift;
                 else
-                    *samples_16++ = s->decoded[i][j] << s->sample_shift;
+                    samples_16[i][j] = s->decoded[i][j] << s->sample_shift;
             }
         }
-        break;
-    case FLAC_CHMODE_LEFT_SIDE:
-        DECORRELATE(a,a-b)
-    case FLAC_CHMODE_RIGHT_SIDE:
-        DECORRELATE(a+b,b)
-    case FLAC_CHMODE_MID_SIDE:
-        DECORRELATE( (a-=b>>1) + b, a)
+    } else {
+        switch (s->ch_mode) {
+        case FLAC_CHMODE_LEFT_SIDE:
+            DECORRELATE(a,a-b)
+        case FLAC_CHMODE_RIGHT_SIDE:
+            DECORRELATE(a+b,b)
+        case FLAC_CHMODE_MID_SIDE:
+            DECORRELATE( (a-=b>>1) + b, a)
+        }
     }
 
     if (bytes_read > buf_size) {
