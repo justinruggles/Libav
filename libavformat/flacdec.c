@@ -252,8 +252,21 @@ static int flac_read_header(AVFormatContext *s)
             }
             /* process supported blocks other than STREAMINFO */
             if (metadata_type == FLAC_METADATA_TYPE_VORBIS_COMMENT) {
+                AVDictionaryEntry *ch_mask;
+
                 if (ff_vorbis_comment(s, &s->metadata, buffer, metadata_size)) {
                     av_log(s, AV_LOG_WARNING, "error parsing VorbisComment metadata\n");
+                }
+
+                /* if present, use the WAVEFORMATEXTENSIBLE_CHANNEL_MASK tag
+                   to set channel layout */
+                ch_mask = av_dict_get(s->metadata,
+                                      "WAVEFORMATEXTENSIBLE_CHANNEL_MASK",
+                                      NULL, 0);
+                if (ch_mask) {
+                    uint32_t layout = strtol(ch_mask->value, NULL, 0);
+                    if (layout)
+                        st->codec->channel_layout = layout;
                 }
             }
             av_freep(&buffer);
