@@ -29,6 +29,7 @@
  * RIFF headers, followed by CD sectors.
  */
 
+#include "libavutil/audioconvert.h"
 #include "libavutil/intreadwrite.h"
 #include "avformat.h"
 #include "internal.h"
@@ -220,6 +221,8 @@ static int str_read_packet(AVFormatContext *s,
                 st->codec->codec_id    = CODEC_ID_ADPCM_XA;
                 st->codec->codec_tag   = 0;  /* no fourcc */
                 st->codec->channels    = (fmt&1)?2:1;
+                st->codec->channel_layout = (fmt & 1) ? AV_CH_LAYOUT_STEREO :
+                                                        AV_CH_LAYOUT_MONO;
                 st->codec->sample_rate = (fmt&4)?18900:37800;
             //    st->codec->bit_rate = 0; //FIXME;
                 st->codec->block_align = 128;
