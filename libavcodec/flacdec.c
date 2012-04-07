@@ -130,9 +130,6 @@ static av_cold int flac_decode_init(AVCodecContext *avctx)
     avcodec_get_frame_defaults(&s->frame);
     avctx->coded_frame = &s->frame;
 
-    if (avctx->channels <= FF_ARRAY_ELEMS(flac_channel_layouts))
-        avctx->channel_layout = flac_channel_layouts[avctx->channels - 1];
-
     return 0;
 }
 
@@ -187,6 +184,10 @@ void avpriv_flac_parse_streaminfo(AVCodecContext *avctx, struct FLACStreaminfo *
 
     skip_bits_long(&gb, 64); /* md5 sum */
     skip_bits_long(&gb, 64); /* md5 sum */
+
+    if (!avctx->channel_layout &&
+        avctx->channels <= FF_ARRAY_ELEMS(flac_channel_layouts))
+        avctx->channel_layout = flac_channel_layouts[avctx->channels - 1];
 
     dump_headers(avctx, s);
 }
