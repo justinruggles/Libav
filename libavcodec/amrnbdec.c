@@ -44,6 +44,7 @@
 #include <math.h>
 
 #include "avcodec.h"
+#include "libavutil/audioconvert.h"
 #include "libavutil/common.h"
 #include "celp_math.h"
 #include "celp_filters.h"
@@ -153,6 +154,12 @@ static av_cold int amrnb_decode_init(AVCodecContext *avctx)
 {
     AMRContext *p = avctx->priv_data;
     int i;
+
+    if (avctx->channels != 1) {
+        av_log(avctx, AV_LOG_ERROR, "Invalid channel count. Must be mono.\n");
+        return AVERROR(EINVAL);
+    }
+    avctx->channel_layout = AV_CH_LAYOUT_MONO;
 
     avctx->sample_fmt = AV_SAMPLE_FMT_FLT;
 
