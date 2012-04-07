@@ -28,6 +28,7 @@
 
 #include "avformat.h"
 #include "internal.h"
+#include "libavutil/audioconvert.h"
 #include "libavutil/avstring.h"
 
 #define ISS_SIG "IMA_ADPCM_Sound"
@@ -95,6 +96,7 @@ static av_cold int iss_read_header(AVFormatContext *s)
     st->codec->codec_type = AVMEDIA_TYPE_AUDIO;
     st->codec->codec_id = CODEC_ID_ADPCM_IMA_ISS;
     st->codec->channels = stereo ? 2 : 1;
+    st->codec->channel_layout = stereo ? AV_CH_LAYOUT_STEREO : AV_CH_LAYOUT_MONO;
     st->codec->sample_rate = 44100;
     if(rate_divisor > 0)
          st->codec->sample_rate /= rate_divisor;
