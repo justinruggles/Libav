@@ -19,6 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "libavutil/audioconvert.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/parseutils.h"
 #include "libavutil/opt.h"
@@ -102,6 +103,8 @@ static int cdxl_read_packet(AVFormatContext *s, AVPacket *pkt)
             st->codec->codec_tag     = 0;
             st->codec->codec_id      = CODEC_ID_PCM_S8;
             st->codec->channels      = cdxl->header[1] & 0x10 ? 2 : 1;
+            st->codec->channel_layout = cdxl->header[1] & 0x10 ? AV_CH_LAYOUT_STEREO :
+                                                                 AV_CH_LAYOUT_MONO;
             st->codec->sample_rate   = cdxl->sample_rate;
             st->start_time           = 0;
             cdxl->audio_stream_index = st->index;
