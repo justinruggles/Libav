@@ -23,6 +23,7 @@
  * Based on http://wiki.multimedia.cx/index.php?title=Smacker
  */
 
+#include "libavutil/audioconvert.h"
 #include "libavutil/bswap.h"
 #include "libavutil/intreadwrite.h"
 #include "avformat.h"
@@ -192,6 +193,9 @@ static int smacker_read_header(AVFormatContext *s)
                 ast[i]->codec->codec_id = CODEC_ID_PCM_U8;
             }
             ast[i]->codec->channels = (smk->aflags[i] & SMK_AUD_STEREO) ? 2 : 1;
+            ast[i]->codec->channel_layout = (smk->aflags[i] & SMK_AUD_STEREO) ?
+                                                AV_CH_LAYOUT_STEREO :
+                                                AV_CH_LAYOUT_MONO;
             ast[i]->codec->sample_rate = smk->rates[i];
             ast[i]->codec->bits_per_coded_sample = (smk->aflags[i] & SMK_AUD_16BITS) ? 16 : 8;
             if(ast[i]->codec->bits_per_coded_sample == 16 && ast[i]->codec->codec_id == CODEC_ID_PCM_U8)
