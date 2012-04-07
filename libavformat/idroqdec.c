@@ -27,6 +27,7 @@
  *   http://www.csse.monash.edu.au/~timf/
  */
 
+#include "libavutil/audioconvert.h"
 #include "libavutil/intreadwrite.h"
 #include "avformat.h"
 #include "internal.h"
@@ -176,6 +177,8 @@ static int roq_read_packet(AVFormatContext *s,
                 st->codec->codec_id = CODEC_ID_ROQ_DPCM;
                 st->codec->codec_tag = 0;  /* no tag */
                 st->codec->channels = roq->audio_channels = chunk_type == RoQ_SOUND_STEREO ? 2 : 1;
+                st->codec->channel_layout = st->codec->channels == 1 ? AV_CH_LAYOUT_MONO :
+                                                                       AV_CH_LAYOUT_STEREO;
                 st->codec->sample_rate = RoQ_AUDIO_SAMPLE_RATE;
                 st->codec->bits_per_coded_sample = 16;
                 st->codec->bit_rate = st->codec->channels * st->codec->sample_rate *
