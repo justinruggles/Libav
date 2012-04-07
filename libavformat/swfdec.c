@@ -20,6 +20,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "libavutil/audioconvert.h"
 #include "libavutil/intreadwrite.h"
 #include "swf.h"
 
@@ -132,6 +133,8 @@ static int swf_read_packet(AVFormatContext *s, AVPacket *pkt)
                 return -1;
             ast->id = -1; /* -1 to avoid clash with video stream ch_id */
             ast->codec->channels = 1 + (v&1);
+            ast->codec->channel_layout = ast->codec->channels == 1 ? AV_CH_LAYOUT_MONO :
+                                                                     AV_CH_LAYOUT_STEREO;
             ast->codec->codec_type = AVMEDIA_TYPE_AUDIO;
             ast->codec->codec_id = ff_codec_get_id(swf_audio_codec_tags, (v>>4) & 15);
             ast->need_parsing = AVSTREAM_PARSE_FULL;
