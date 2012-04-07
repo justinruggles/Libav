@@ -137,6 +137,10 @@ static int au_read_header(AVFormatContext *s)
     id = avio_rb32(pb);
     rate = avio_rb32(pb);
     channels = avio_rb32(pb);
+    if (channels > INT_MAX) {
+        av_log(s, AV_LOG_ERROR, "invalid channel count: %u\n", channels);
+        return AVERROR_INVALIDDATA;
+    }
 
     codec = ff_codec_get_id(codec_au_tags, id);
 
