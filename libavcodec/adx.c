@@ -18,6 +18,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "libavutil/audioconvert.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/mathematics.h"
 #include "adx.h"
@@ -60,6 +61,8 @@ int avpriv_adx_decode_header(AVCodecContext *avctx, const uint8_t *buf,
     avctx->channels = buf[7];
     if (avctx->channels <= 0 || avctx->channels > 2)
         return AVERROR_INVALIDDATA;
+    avctx->channel_layout = avctx->channels == 1 ? AV_CH_LAYOUT_MONO :
+                                                   AV_CH_LAYOUT_STEREO;
 
     /* sample rate */
     avctx->sample_rate = AV_RB32(buf + 8);
