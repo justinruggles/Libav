@@ -20,6 +20,8 @@
  */
 
 #include <string.h>
+
+#include "libavutil/audioconvert.h"
 #include "avformat.h"
 
 static int apc_probe(AVProbeData *p)
@@ -61,6 +63,8 @@ static int apc_read_header(AVFormatContext *s)
     st->codec->channels = 1;
     if (avio_rl32(pb))
         st->codec->channels = 2;
+    st->codec->channel_layout = st->codec->channels == 1 ? AV_CH_LAYOUT_MONO :
+                                                           AV_CH_LAYOUT_STEREO;
 
     st->codec->bits_per_coded_sample = 4;
     st->codec->bit_rate = st->codec->bits_per_coded_sample * st->codec->channels
