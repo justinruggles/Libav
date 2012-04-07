@@ -24,6 +24,7 @@
  * AMR wideband decoder
  */
 
+#include "libavutil/audioconvert.h"
 #include "libavutil/lfg.h"
 
 #include "avcodec.h"
@@ -88,6 +89,12 @@ static av_cold int amrwb_decode_init(AVCodecContext *avctx)
 {
     AMRWBContext *ctx = avctx->priv_data;
     int i;
+
+    if (avctx->channels != 1) {
+        av_log(avctx, AV_LOG_ERROR, "Invalid channel count. Must be mono.\n");
+        return AVERROR(EINVAL);
+    }
+    avctx->channel_layout = AV_CH_LAYOUT_MONO;
 
     avctx->sample_fmt = AV_SAMPLE_FMT_FLT;
 
