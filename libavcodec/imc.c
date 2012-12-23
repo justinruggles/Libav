@@ -78,8 +78,6 @@ typedef struct IMCChannel {
 } IMCChannel;
 
 typedef struct {
-    AVFrame frame;
-
     IMCChannel chctx[2];
 
     /** MDCT tables */
@@ -247,9 +245,6 @@ static av_cold int imc_decode_init(AVCodecContext *avctx)
     avctx->sample_fmt     = AV_SAMPLE_FMT_FLTP;
     avctx->channel_layout = avctx->channels == 1 ? AV_CH_LAYOUT_MONO
                                                  : AV_CH_LAYOUT_STEREO;
-
-    avcodec_get_frame_defaults(&q->frame);
-    avctx->coded_frame = &q->frame;
 
     return 0;
 }
@@ -925,6 +920,7 @@ static int imc_decode_block(AVCodecContext *avctx, IMCContext *q, int ch)
 static int imc_decode_frame(AVCodecContext *avctx, void *data,
                             int *got_frame_ptr, AVPacket *avpkt)
 {
+    AVFrame *frame     = data;
     const uint8_t *buf = avpkt->data;
     int buf_size = avpkt->size;
     int ret, i;
@@ -939,14 +935,14 @@ static int imc_decode_frame(AVCodecContext *avctx, void *data,
     }
 
     /* get output buffer */
-    q->frame.nb_samples = COEFFS;
-    if ((ret = ff_get_buffer(avctx, &q->frame)) < 0) {
+    frame->nb_samples = COEFFS;
+    if ((ret = ff_get_buffer(avctx, frame)) < 0) {
         av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
         return ret;
     }
 
     for (i = 0; i < avctx->channels; i++) {
-        q->out_samples = (float *)q->frame.extended_data[i];
+        q->out_samples = (float *)frame->extended_data[i];
 
         q->dsp.bswap16_buf(buf16, (const uint16_t*)buf, IMC_BLOCK_SIZE / 2);
 
@@ -959,12 +955,11 @@ static int imc_decode_frame(AVCodecContext *avctx, void *data,
     }
 
     if (avctx->channels == 2) {
-        q->dsp.butterflies_float((float *)q->frame.extended_data[0],
-                                 (float *)q->frame.extended_data[1], COEFFS);
+        q->dsp.butterflies_float((float *)frame->extended_data[0],
+                                 (float *)frame->extended_data[1], COEFFS);
     }
 
-    *got_frame_ptr   = 1;
-    *(AVFrame *)data = q->frame;
+    *got_frame_ptr = 1;
 
     return IMC_BLOCK_SIZE * avctx->channels;
 }
