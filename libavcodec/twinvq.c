@@ -177,7 +177,6 @@ static const ModeTab mode_44_48 = {
 
 typedef struct TwinContext {
     AVCodecContext *avctx;
-    AVFrame frame;
     DSPContext      dsp;
     AVFloatDSPContext fdsp;
     FFTContext mdct_ctx[3];
@@ -813,6 +812,7 @@ static void read_and_decode_spectrum(TwinContext *tctx, GetBitContext *gb,
 static int twin_decode_frame(AVCodecContext * avctx, void *data,
                              int *got_frame_ptr, AVPacket *avpkt)
 {
+    AVFrame *frame     = data;
     const uint8_t *buf = avpkt->data;
     int buf_size = avpkt->size;
     TwinContext *tctx = avctx->priv_data;
@@ -834,12 +834,12 @@ static int twin_decode_frame(AVCodecContext * avctx, void *data,
 
     /* get output buffer */
     if (tctx->discarded_packets >= 2) {
-        tctx->frame.nb_samples = mtab->size;
-        if ((ret = ff_get_buffer(avctx, &tctx->frame)) < 0) {
+        frame->nb_samples = mtab->size;
+        if ((ret = ff_get_buffer(avctx, frame)) < 0) {
             av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
             return ret;
         }
-        out = (float **)tctx->frame.extended_data;
+        out = (float **)frame->extended_data;
     }
 
     init_get_bits(&gb, buf, buf_size * 8);
@@ -865,8 +865,7 @@ static int twin_decode_frame(AVCodecContext * avctx, void *data,
         return buf_size;
     }
 
-    *got_frame_ptr   = 1;
-    *(AVFrame *)data = tctx->frame;;
+    *got_frame_ptr = 1;
 
     return buf_size;
 }
@@ -1168,9 +1167,6 @@ static av_cold int twin_decode_init(AVCodecContext *avctx)
     init_bitstream_params(tctx);
 
     memset_float(tctx->bark_hist[0][0], 0.1, FF_ARRAY_ELEMS(tctx->bark_hist));
-
-    avcodec_get_frame_defaults(&tctx->frame);
-    avctx->coded_frame = &tctx->frame;
 
     return 0;
 }
